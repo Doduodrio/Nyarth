@@ -12,7 +12,7 @@ def print(*args, **kwargs):
     if not logging:
         return
     # log_2026-01-01_00.00.00.txt
-    with open(f'logs/log_{logtime}.txt', 'a') as file:
+    with open(f'logs/log_{logtime}.txt', 'a', encoding='utf-8') as file:
         print_copy(*args, file=file, **kwargs)
 
 def now():
