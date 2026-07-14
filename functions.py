@@ -1,6 +1,20 @@
 import datetime
 from discord.ext import commands
 
+logging = True
+t = datetime.datetime.now()
+logtime = '{}-{}-{}_{}.{}.{}'.format(*[t.year, t.month, t.day, t.hour, t.minute, t.second])
+
+# override the default print function!
+print_copy = print
+def print(*args, **kwargs):
+    print_copy(*args, **kwargs)
+    if not logging:
+        return
+    # log_2026-01-01_00.00.00.txt
+    with open(f'logs/log_{logtime}.txt', 'a') as file:
+        print_copy(*args, file=file, **kwargs)
+
 def now():
     # returns current timestamp
     time = datetime.datetime.now()
@@ -55,6 +69,9 @@ def find_member(ctx: commands.Context, username: str):
                 user = member
                 break
             if member.global_name is not None and username.lower() in member.global_name.lower():
+                user = member
+                break
+            if member.display_name is not None and username.lower() in member.display_name.lower():
                 user = member
                 break
     return user
