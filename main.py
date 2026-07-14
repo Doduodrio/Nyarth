@@ -152,9 +152,7 @@ async def gamble(ctx, amount=None):
         return False
     
     # get user balance
-    if cache.retrieve(ctx.author.name, "balance"):
-        balance = cache.retrieve(ctx.author.name, "balance")
-    else:
+    if (balance := cache.retrieve(ctx.author.name, "balance")) is None:
         response = supabase.table("user data").select("*").eq("username", ctx.author.name).execute()
         if response.data:
             balance = response.data[0]["balance"]
@@ -234,9 +232,7 @@ async def give(ctx, username=None, amount=None):
         return False
     
     # get user balance
-    if cache.retrieve(ctx.author.name, "balance"):
-        balance = cache.retrieve(ctx.author.name, "balance")
-    else:
+    if (balance := cache.retrieve(ctx.author.name, "balance")) is None:
         response = supabase.table("user data").select("*").eq("username", ctx.author.name).execute()
         if response.data:
             balance = response.data[0]["balance"]
@@ -244,10 +240,8 @@ async def give(ctx, username=None, amount=None):
             supabase.table("user data").insert({"username": ctx.author.name, "balance": 0}).execute()
             balance = 0
     
-    # get recipient balance
-    if cache.retrieve(recipient.name, "balance"):
-        recipient_balance = cache.retrieve(recipient.name, "balance")
-    else:
+    # get recipient balance 
+    if (recipient_balance := cache.retrieve(recipient.name, "balance")) is None:
         response = supabase.table("user data").select("*").eq("username", recipient.name).execute()
         if response.data:
             recipient_balance = response.data[0]["balance"]
