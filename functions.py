@@ -10,7 +10,7 @@ def now():
         if len(date[i])==1: date[i] = '0' + date[i]
     return '[{}-{}-{} {}:{}:{}]'.format(*date)
 
-async def command_timeout_check(ctx: commands.Context, last_used: datetime, timeout: int):
+async def command_timeout_check(ctx: commands.Context, last_used: datetime.datetime, timeout: int):
     # last_used: datetime object
     # timeout  : # of seconds between uses
 
@@ -29,7 +29,7 @@ async def command_timeout_check(ctx: commands.Context, last_used: datetime, time
     units = ["hours", "minutes", "seconds"]
     time_string = ", ".join([f"{delay[i]} {units[i]}" for i in range(3) if delay[i] > 0])
     if time_string == "":
-        time_string = "0 seconds"
+        return False
 
     await ctx.send(f"❌ You can use this command again in `{time_string}`.")
     print(f"{now()} [{ctx.author.name}] work: command timeout ({time_string} left)")
@@ -51,7 +51,10 @@ def find_member(ctx: commands.Context, username: str):
         # find member in guild list
         members = ctx.guild.members
         for member in members:
-            if member.id == id or username.lower() in member.name.lower() or username.lower() in member.global_name.lower():
+            if member.id == id or username.lower() in member.name.lower():
+                user = member
+                break
+            if member.global_name is not None and username.lower() in member.global_name.lower():
                 user = member
                 break
     return user
