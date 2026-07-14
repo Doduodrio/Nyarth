@@ -327,7 +327,7 @@ async def leaderboard(ctx: commands.Context, page=None):
     lb_string = "```"
     for i in range(10):
         if (page-1)*10+i < len(lb):
-            lb_string += f"\n{(page-1)*10+i+1}. 🪙{lb[(page-1)*10+i][1]:<{padding}} {lb[(page-1)*10+i][0]}"
+            lb_string += f"\n{(page-1)*10+i+1:>2}. 🪙{lb[(page-1)*10+i][1]:<{padding}} {lb[(page-1)*10+i][0]}"
     lb_string += "```"
     
     embed = discord.Embed(color=discord.Color.gold())
@@ -416,5 +416,100 @@ async def inventory(ctx, page=None):
     embed.set_footer(text=f"Page {page}/{max_pages}")
     await ctx.send(embed=embed)
     print(f"{now()} [{ctx.author.name}] inventory: got inventory")
+
+@bot.command()
+@command_timeout(0)
+async def help(ctx, command_name=None):
+    commands = [
+        {
+            "name": "ping",
+            "aliases": [],
+            "description": "Ping Nyarth.",
+            "usage": "%ping"
+        },
+        {
+            "name": "balance",
+            "aliases": ["bal"],
+            "description": "Check how many 🪙 you have.",
+            "usage": "%balance (user)"
+        },
+        {
+            "name": "work",
+            "aliases": [],
+            "description": "Go to work and earn up to 🪙100. If you do a bad job, you could lose up to 🪙100...",
+            "usage": "%work"
+        },
+        {
+            "name": "gamble",
+            "aliases": [],
+            "description": "Gamble your 🪙! You could double your bet, but you could also lose it all...",
+            "usage": "%gamble [amount | all]"
+        },
+        {
+            "name": "clearcache",
+            "aliases": ["clear"],
+            "description": "Reset all cooldowns and clear cached data. Only admin can use this command.",
+            "usage": "%clearcache"
+        },
+        {
+            "name": "give",
+            "aliases": [],
+            "description": "Give another user some of your 🪙. Sharing is caring!",
+            "usage": "%give [user] [amount | all]"
+        },
+        {
+            "name": "leaderboard",
+            "aliases": ["lb"],
+            "description": "View a list the richest people in the server!",
+            "usage": "%leaderboard (page number)"
+        },
+        {
+            "name": "roast",
+            "aliases": [],
+            "description": "Roast your friends!",
+            "usage": "%roast (user)"
+        },
+        {
+            "name": "inventory",
+            "aliases": [],
+            "description": "View your inventory items.",
+            "usage": "%inventory (page number)"
+        },
+        {
+            "name": "help",
+            "aliases": [],
+            "description": "View a list of all commands with descriptions.",
+            "usage": "%help (command name)"
+        }
+    ]
+    commands.sort(key=lambda x: x["name"])
+
+    if command_name is None:
+        embed = discord.Embed(color=discord.Color.gold())
+        embed.set_author(name="Help Menu", icon_url=bot.user.avatar.url)
+        for command in commands:
+            embed.add_field(name=", ".join([command["name"], *command["aliases"]]), value=f"> {command["description"]}", inline=False)
+        await ctx.send(embed=embed)
+        print(f"{now()} [{ctx.author.name}] help: viewed all commands")
+    else:
+        command = None
+        for c in commands:
+            if c["name"] == command_name.lower() or command_name.lower() in c["aliases"]:
+                command = c
+                break
+        if command is None:
+            await ctx.send("❌ Command not found.")
+            print(f"[ERROR] {now()} [{ctx.author.name}] help: couldn't find command {command_name}")
+            return False
+        embed = discord.Embed(
+            title=command["name"],
+            description=command["description"],
+            color=discord.Color.gold()
+        )
+        if command["aliases"]:
+            embed.add_field(name="Aliases", value=f"`{", ".join(command["aliases"])}`")
+        embed.add_field(name="Usage", value=f"`{command["usage"]}`")
+        await ctx.send(embed=embed)
+        print(f"{now()} [{ctx.author.name}] help: viewed command {command["name"]}")
 
 bot.run(TOKEN)
