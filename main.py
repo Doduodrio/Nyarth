@@ -49,6 +49,11 @@ class Cache():
 
 cache = Cache()
 
+descriptions = {
+    "corn": "An ear of juicy corn, ready for popping.",
+    "popcorn": "A steaming box of buttery popcorn."
+}
+
 def command_timeout(timeout):
     def decorator(func):
         @wraps(func)
@@ -396,7 +401,18 @@ async def inventory(ctx, page=None):
     embed = discord.Embed(color=discord.Color.gold())
     embed.set_author(name=f"{ctx.author.name}'s Inventory", icon_url=ctx.author.avatar.url)
     for item in inv:
-        embed.add_field(name=f"{item["icon"]} {item["name"]} x{item["count"]}", value="Description", inline=False)
+        try:
+            description = item["description"]
+        except KeyError:
+            try:
+                description = descriptions[item["name"]]
+            except KeyError:
+                description = "Description not found."
+        embed.add_field(
+            name=f"{item["icon"]} {item["name"].title()} x{item["count"]}",
+            value=description,
+            inline=False
+        )
     embed.set_footer(text=f"Page {page}/{max_pages}")
     await ctx.send(embed=embed)
     print(f"{now()} [{ctx.author.name}] inventory: got inventory")
