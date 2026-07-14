@@ -362,20 +362,43 @@ async def roast(ctx, username=None):
     await ctx.send(f"<@{user.id}> {roast}")
     print(f"{now()} [{ctx.author.name}] roast: roasted {user.name} (id: {user.id}) \"{roast}\"")
 
-# @bot.command(aliases=["inv"])
-# @command_timeout(0)
-# async def inventory(ctx, page=None):
-#     # validate page number
-#     try:
-#         if page is None:
-#             page = 1
-#         else:
-#             page = int(page)
-#     except:
-#         await ctx.send("❌ Invalid page number.")
-#         print(f"[ERROR] {now()} [{ctx.author.name}] inventory: invalid page number {page}")
-#         return False
+@bot.command(aliases=["inv"])
+@command_timeout(0)
+async def inventory(ctx, page=None):
+    # validate page number
+    try:
+        if page is None:
+            page = 1
+        else:
+            page = int(page)
+    except:
+        await ctx.send("❌ Invalid page number.")
+        print(f"[ERROR] {now()} [{ctx.author.name}] inventory: invalid page number {page}")
+        return False
     
-    
+    # retrieve inventory
+    if (inv := cache.retrieve(ctx.author.name, "inventory")) is None:
+        response = supabase.table("user data").select("*").eq("username", ctx.author.name).execute()
+        if response.data:
+            inv = response.data[0]["inventory"]
+        else:
+            supabase.table("user data").insert({"username": ctx.author.name, "balance": 0, "inventory": []}).execute()
+            inv = []
+        cache.update(ctx.author.name, "inventory", inv)
+
+    # validate page number
+    max_pages = max(int((len(inv)-1)/10+1), 1)
+    if page > max_pages:
+        await ctx.send("❌ Invalid page number.")
+        print(f"[ERROR] {now()} [{ctx.author.name}] inventory: invalid page number {page}")
+        return False
+
+    embed = discord.Embed(color=discord.Color.gold())
+    embed.set_author(name=f"{ctx.author.name}'s Inventory", icon_url=ctx.author.avatar.url)
+    for item in inv:
+        embed.add_field(name=f"{item["icon"]} {item["name"]} x{item["count"]}", value="Description", inline=False)
+    embed.set_footer(text=f"Page {page}/{max_pages}")
+    await ctx.send(embed=embed)
+    print(f"{now()} [{ctx.author.name}] inventory: got inventory")
 
 bot.run(TOKEN)
