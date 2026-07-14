@@ -277,7 +277,18 @@ async def give(ctx, username=None, amount=None):
 
 @bot.command(aliases=["lb"])
 @command_timeout(0)
-async def leaderboard(ctx: commands.Context, page=1):
+async def leaderboard(ctx: commands.Context, page=None):
+    # validate page number
+    try:
+        if page is None:
+            page = 1
+        else:
+            page = int(page)
+    except:
+        await ctx.send("❌ Invalid page number.")
+        print(f"[ERROR] {now()} [{ctx.author.name}] leaderboard: invalid page number {page}")
+        return False
+
     # retrieve data
     response = supabase.table("user data").select("*").execute()
     # update cache
@@ -304,6 +315,13 @@ async def leaderboard(ctx: commands.Context, page=1):
                     lb.pop(i)
                     break
     
+    # validate page number
+    max_pages = max(int((len(lb)-1)/10+1), 1)
+    if page > max_pages:
+        await ctx.send("❌ Invalid page number.")
+        print(f"[ERROR] {now()} [{ctx.author.name}] leaderboard: invalid page number {page}")
+        return False
+    
     padding = len(str(lb[0][1])) # length of the highest balance
     
     # construct leaderboard string
@@ -315,7 +333,7 @@ async def leaderboard(ctx: commands.Context, page=1):
     
     embed = discord.Embed(color=discord.Color.gold())
     embed.add_field(name=f"{ctx.guild.name} Leaderboard", value=lb_string)
-    embed.set_footer(text=f"Page {page}/{max(int((len(lb)-1)/10+1), 1)}")
+    embed.set_footer(text=f"Page {page}/{max_pages}")
     await ctx.send(embed=embed)
     print(f"{now()} [{ctx.author.name}] leaderboard: displayed leaderboard for {ctx.guild.name}")
 
@@ -349,5 +367,21 @@ async def roast(ctx, username=None):
 
     await ctx.send(f"<@{user.id}> {roast}")
     print(f"{now()} [{ctx.author.name}] roast: roasted {user.name} (id: {user.id}) \"{roast}\"")
+
+# @bot.command(aliases=["inv"])
+# @command_timeout(0)
+# async def inventory(ctx, page=None):
+#     # validate page number
+#     try:
+#         if page is None:
+#             page = 1
+#         else:
+#             page = int(page)
+#     except:
+#         await ctx.send("❌ Invalid page number.")
+#         print(f"[ERROR] {now()} [{ctx.author.name}] inventory: invalid page number {page}")
+#         return False
+    
+    
 
 bot.run(TOKEN)
