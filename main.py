@@ -54,16 +54,29 @@ def command_timeout(timeout):
         @wraps(func)
         async def wrapper(ctx, *args, **kwargs):
             # command timeout check
-            if await command_timeout_check(ctx, cache.retrieve(ctx.author.name, func.__name__), timeout):
+            if await command_timeout_check(ctx, cache.retrieve(ctx.author.name, f"{func.__name__}_timeout"), timeout):
+                return
+            
+            # active user check
+            if cache.retrieve("active", ctx.author.name):
+                await ctx.send(f"❌ You already have a command running!")
+                print(f"{now()} [{ctx.author.name}] {func.__name__}: already has another command running")
                 return
 
+            # add user to active list
+            cache.update("active", ctx.author.name, True)
+
             # run command
-            output = await func(ctx, *args, **kwargs)
+            failure = await func(ctx, *args, **kwargs)
 
             # update command timeout
-            cache.update(ctx.author.name, func.__name__, datetime.datetime.now())
+            if failure is None:
+                cache.update(ctx.author.name, f"{func.__name__}_timeout", datetime.datetime.now())
+            
+            # remove user from active list
+            cache.update("active", ctx.author.name, False)
 
-            return output
+            return failure
         return wrapper
     return decorator
 
@@ -77,31 +90,24 @@ async def on_ready():
     print("Nyarth sent a DM to doduodrio (id: 587040390603866122) upon activating!\n")
 
 @bot.command()
+@command_timeout(0)
 async def ping(ctx):
     await ctx.send(f"Pong!")
     print(f"{now()} ping: pinged bot")
 
 @bot.command(aliases=["bal"])
+@command_timeout(0)
 async def balance(ctx, username=None):
-    if username == None:
+    if username is None:
         user = ctx.author
     else:
         user = find_member(ctx, username)
         if user is None:
             await ctx.send(f"❌ Member not found.")
             print(f"[ERROR] {now()} [{ctx.author.name}] balance: invalid member {username}")
-            return
+            return False
 
-    if cache.retrieve(user.name, "balance"):
-        balance = cache.retrieve(user.name, "balance")
-    else:
-        response = supabase.table("user data").select("*").eq("username", user.name).execute()
-        if response.data:
-            balance = response.data[0]["balance"]
-        else:
-            supabase.table("user data").insert({"username": user.name, "balance": 0}).execute()
-            balance = 0
-        cache.update(user.name, "balance", balance)
+    balance = get_balance(cache, supabase, user.name)
     
     embed = discord.Embed(color=discord.Color.gold())
     embed.set_author(name=user.name, icon_url=user.avatar.url)
@@ -122,14 +128,9 @@ async def work(ctx):
         await ctx.send(f"<@{ctx.author.id}> did a good job at work! You got 🪙{amount}!")
     
     # get user balance and update it
-    response = supabase.table("user data").select("*").eq("username", ctx.author.name).execute()
-    if response.data:
-        balance = response.data[0]["balance"]
-        supabase.table("user data").update({"balance": balance+amount}).eq("username", ctx.author.name).execute()
-        cache.update(ctx.author.name, "balance", balance+amount)
-    else:
-        supabase.table("user data").insert({"username": ctx.author.name, "balance": amount}).execute()
-        cache.update(ctx.author.name, "balance", amount)
+    balance = get_balance(cache, supabase, ctx.author.name)
+    supabase.table("user data").update({"balance": balance+amount}).eq("username", ctx.author.name).execute()
+    cache.update(ctx.author.name, "balance", balance+amount)
     print(f"{now()} [{ctx.author.name}] work: earned {amount} coins")
 
 @bot.command()
@@ -148,7 +149,7 @@ async def gamble(ctx, amount=None):
     if (amount is None) or (amount != "all" and amount <= 0):
         await ctx.send(f"❌ Invalid amount specified.")
         print(f"[ERROR] {now()} [{ctx.author.name}] gamble: invalid amount")
-        return
+        return False
     
     # get user balance
     if cache.retrieve(ctx.author.name, "balance"):
@@ -166,7 +167,7 @@ async def gamble(ctx, amount=None):
         if balance <= 0:
             await ctx.send(f"❌ You don't have enough 🪙 to gamble...")
             print(f"[ERROR] {now()} [{ctx.author.name}] gamble: cannot gamble ({balance} balance)")
-            return
+            return False
         else:
             amount = balance
     
@@ -183,29 +184,34 @@ async def gamble(ctx, amount=None):
     else:
         await ctx.send(f"❌ You don't have enough 🪙 to gamble... You need {amount-balance} more 🪙!")
         print(f"[ERROR] {now()} [{ctx.author.name}] gamble: not enough money (missing {amount-balance} coins)")
+        return False
 
 @bot.command(aliases=["clear"])
+@command_timeout(0)
 async def clearcache(ctx):
     if ctx.author.name != "doduodrio":
         await ctx.send("❌ You can't use this command.")
         print(f"[ERROR] {now()} [{ctx.author.name}] clearcache: can't use this command")
+        return False
     else:
         cache.clear_all()
         await ctx.send(f"<@{ctx.author.id}> Cache cleared!")
         print(f"{now()} [{ctx.author.name}] clearcache: cache cleared")
 
 @bot.command()
+@command_timeout(0)
 async def give(ctx, username=None, amount=None):
     if username is None:
         await ctx.send("❌ Specify a member to give 🪙 to.")
         print(f"[ERROR] {now()} [{ctx.author.name}] give: recipient not specified")
+        return False
     
     recipient = find_member(ctx, username)
     
     if recipient is None:
         await ctx.send(f"❌ Member not found.")
         print(f"[ERROR] {now()} [{ctx.author.name}] give: invalid member {username}")
-        return
+        return False
     
     # convert amount to an integer if it isn't "all"
     try:
@@ -220,13 +226,13 @@ async def give(ctx, username=None, amount=None):
     if (amount is None) or (amount != "all" and amount <= 0):
         await ctx.send(f"❌ Invalid amount specified.")
         print(f"[ERROR] {now()} [{ctx.author.name}] give: invalid amount")
-        return
+        return False
 
     # cannot give yourself coins
     if ctx.author == recipient:
         await ctx.send(f"❌ You cannot give yourself 🪙")
         print(f"[ERROR] {now()} [{ctx.author.name}] give: cannot give self coins")
-        return
+        return False
     
     # get user balance
     if cache.retrieve(ctx.author.name, "balance"):
@@ -255,7 +261,7 @@ async def give(ctx, username=None, amount=None):
         if balance <= 0:
             await ctx.send(f"❌ You don't have any 🪙 to give...")
             print(f"[ERROR] {now()} [{ctx.author.name}] give: cannot give ({balance} balance)")
-            return
+            return False
         else:
             amount = balance
     
@@ -269,5 +275,41 @@ async def give(ctx, username=None, amount=None):
     else:
         await ctx.send(f"❌ You don't have enough 🪙 to give... You need {amount-balance} more 🪙!")
         print(f"[ERROR] {now()} [{ctx.author.name}] give: not enough money (missing {amount-balance} coins)")
+
+@bot.command(aliases=["lb"])
+@command_timeout(0)
+async def leaderboard(ctx, page=1):
+    pass
+
+@bot.command()
+@command_timeout(0)
+async def roast(ctx, username=None):
+    if username is None:
+        user = ctx.author
+    else:
+        user = find_member(ctx, username)
+        if user is None:
+            await ctx.send(f"❌ Member not found.")
+            print(f"[ERROR] {now()} [{ctx.author.name}] balance: invalid member {username}")
+            return False
+    
+    roasts = [
+        "You have a face that would make onions cry.",
+        "I look at you and think, “Two billion years of evolution, for this?”",
+        "I am jealous of all the people who have never met you.",
+        "I consider you my Sun. Now, please get 93 million miles away from here.",
+        "If laughter is the best medicine, your face must be curing the world.",
+        "You're not simply a drama queen/king. You're the whole royal family.",
+        "I was thinking about you today. It reminded me to take out the trash.",
+        "You are the human version of cramps.",
+        "You haven't changed since the last time I saw you. You really should.",
+        "If ignorance is bliss, you must be the happiest person on Earth.",
+        "Oh, sorry, did the middle of my sentence interrupt the beginning of yours?",
+        "Don't worry, the first 40 years of childhood are always the hardest."
+    ]
+    roast = random.choice(roasts)
+
+    await ctx.send(f"<@{user.id}> {roast}")
+    print(f"{now()} [{ctx.author.name}] roast: roasted {user.name} (id: {user.id}) \"{roast}\"")
 
 bot.run(TOKEN)
