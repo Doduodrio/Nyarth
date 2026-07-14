@@ -187,7 +187,6 @@ async def gamble(ctx, amount=None):
         return False
 
 @bot.command(aliases=["clear"])
-@command_timeout(0)
 async def clearcache(ctx):
     if ctx.author.name != "doduodrio":
         await ctx.send("❌ You can't use this command.")
@@ -278,8 +277,47 @@ async def give(ctx, username=None, amount=None):
 
 @bot.command(aliases=["lb"])
 @command_timeout(0)
-async def leaderboard(ctx, page=1):
-    pass
+async def leaderboard(ctx: commands.Context, page=1):
+    # retrieve data
+    response = supabase.table("user data").select("*").execute()
+    # update cache
+    for row in response.data:
+        cache.update(row["username"], "balance", row["balance"])
+
+    # convert data into a list of pairs
+    lb = [(row["username"], row["balance"]) for row in response.data]
+    lb.sort(key=lambda x: x[1], reverse=True)
+
+    # remove members that aren't in the guild
+    index = 0
+    for i in range(len(lb)):
+        if lb[index][0] not in [i.name for i in ctx.guild.members]:
+            lb.pop(index)
+        else:
+            index += 1
+    
+    # remove bot users
+    for member in ctx.guild.members:
+        if member.name in [i[0] for i in lb] and member.bot:
+            for i in range(len(lb)):
+                if lb[i][0] == member.name:
+                    lb.pop(i)
+                    break
+    
+    padding = len(str(lb[0][1])) # length of the highest balance
+    
+    # construct leaderboard string
+    lb_string = "```"
+    for i in range(10):
+        if (page-1)*10+i < len(lb):
+            lb_string += f"\n{(page-1)*10+i+1}. 🪙{lb[(page-1)*10+i][1]:<{padding}} {lb[(page-1)*10+i][0]}"
+    lb_string += "```"
+    
+    embed = discord.Embed(color=discord.Color.gold())
+    embed.add_field(name=f"{ctx.guild.name} Leaderboard", value=lb_string)
+    embed.set_footer(text=f"Page {page}/{max(int((len(lb)-1)/10+1), 1)}")
+    await ctx.send(embed=embed)
+    print(f"{now()} [{ctx.author.name}] leaderboard: displayed leaderboard for {ctx.guild.name}")
 
 @bot.command()
 @command_timeout(0)
