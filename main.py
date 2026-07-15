@@ -593,19 +593,76 @@ async def buy(ctx, item_name=None):
         cache.update(ctx.author.name, "inventory", inv)
     
     # add item to inventory
-    for i in inv:
-        if i["name"] == item["name"]:
-            i["count"] += 1
-            return
-    inv.append({
-        "icon": item["icon"],
-        "name": item["name"],
-        "count": 1
-    })
+    if item["name"] in [i["name"] for i in inv]:
+        for i in inv:
+            if i["name"] == item["name"]:
+                i["count"] += 1
+                break
+    else:
+        inv.append({
+            "icon": item["icon"],
+            "name": item["name"],
+            "count": 1
+        })
     supabase.table("user data").update({"inventory": inv}).eq("username", ctx.author.name).execute()
     cache.update(ctx.author.name, "inventory", inv)
 
     # log purchase
-    print(f"{now()} [{ctx.author.name}] buy: bought {item["name"]}")
+    print(f"{now()} [{ctx.author.name}] buy: bought {item["name"]} for {item["price"]} coins")
+
+@bot.command()
+@command_timeout(0)
+async def sell(ctx, item_name=None):
+    if item_name is None:
+        await ctx.send("❌ No item specified.")
+        print(f"[ERROR] {now} [{ctx.author.name}] sell: no item specified")
+        return False
+    
+    # get inventory
+    if (inv := cache.retrieve(ctx.author.name, "inventory")) is None:
+        response = supabase.table("user data").select("*").eq("username", ctx.author.name).execute()
+        if response.data:
+            inv = response.data[0]["inventory"]
+        else:
+            supabase.table("user data").insert({"username": ctx.author.name, "balance": 0, "inventory": []}).execute()
+            inv = []
+        cache.update(ctx.author.name, "inventory", inv)
+
+    # make sure item is in the inventory
+    if item_name not in [i["name"] for i in inv]:
+        await ctx.send("❌ You don't have this item!")
+        print(f"[ERROR] {now()} [{ctx.author.name}] sell: doesn't have item ({item_name})")
+        return False
+    
+    try:
+        item = items[item_name]
+    except KeyError:
+        await ctx.send("❌ This item can't be sold!")
+        print(f"[ERROR] {now()} [{ctx.author.name}] sell: can't sell item ({item_name})")
+        return False
+
+    # send message to user before making more api calls
+    await ctx.send(f"<@{ctx.author.id}> sold {item["icon"]} {item["name"].title()} for 🪙{item["price"]}!")
+    
+    # get user balance
+    balance = get_balance(cache, supabase, ctx.author.name)
+
+    # increase balance
+    supabase.table("user data").update({"balance": balance+item["price"]}).eq("username", ctx.author.name).execute()
+    cache.update(ctx.author.name, "balance", balance+item["price"])
+    
+    # remove item from inventory
+    for i in range(len(inv)):
+        if inv[i]["name"] == item["name"]:
+            if inv[i]["count"] == 1:
+                inv.pop(i)
+            else:
+                inv[i]["count"] -= 1
+            break
+    supabase.table("user data").update({"inventory": inv}).eq("username", ctx.author.name).execute()
+    cache.update(ctx.author.name, "inventory", inv)
+
+    # log sale
+    print(f"{now()} [{ctx.author.name}] sell: sold {item["name"]} for {item["price"]} coins")
 
 bot.run(TOKEN)
