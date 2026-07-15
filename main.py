@@ -49,9 +49,31 @@ class Cache():
 
 cache = Cache()
 
-descriptions = {
-    "corn": "An ear of juicy corn, ready for popping.",
-    "popcorn": "A steaming box of buttery popcorn."
+items = {
+    "corn": {
+        "name": "corn",
+        "icon": "🌽",
+        "description": "An ear of juicy corn, ready for popping.",
+        "price": 100
+    },
+    "popcorn": {
+        "name": "popcorn",
+        "icon": "🍿",
+        "description": "A steaming box of buttery popcorn.",
+        "price": 200
+    },
+    "seedling": {
+        "name": "seedling",
+        "icon": "🌱",
+        "description": "Plant one and watch it grow!",
+        "price": 20
+    },
+    "bucket": {
+        "name": "bucket",
+        "icon": "🪣",
+        "description": "Water your seedlings to make them grow faster!",
+        "price": 100
+    }
 }
 
 def command_timeout(timeout):
@@ -405,7 +427,7 @@ async def inventory(ctx, page=None):
             description = item["description"]
         except KeyError:
             try:
-                description = descriptions[item["name"]]
+                description = items[item["name"]]["description"]
             except KeyError:
                 description = "Description not found."
         embed.add_field(
@@ -480,6 +502,12 @@ async def help(ctx, command_name=None):
             "aliases": [],
             "description": "View a list of all commands with descriptions.",
             "usage": "%help (command name)"
+        },
+        {
+            "name": "shop",
+            "aliases": [],
+            "description": "View a list of available items to buy.",
+            "usage": "%shop"
         }
     ]
     commands.sort(key=lambda x: x["name"])
@@ -511,5 +539,18 @@ async def help(ctx, command_name=None):
         embed.add_field(name="Usage", value=f"`{command["usage"]}`")
         await ctx.send(embed=embed)
         print(f"{now()} [{ctx.author.name}] help: viewed command {command["name"]}")
+
+@bot.command()
+@command_timeout(0)
+async def shop(ctx):
+    shop_items = ["seedling", "bucket"]
+    embed = discord.Embed(color=discord.Color.gold())
+    embed.set_author(name="Nyarth's Shop", icon_url=bot.user.avatar.url)
+    index = 1
+    for item in shop_items:
+        item = items[item]
+        embed.add_field(name=f"[{index}] {item["icon"]} {item["name"].title()} - 🪙{item["price"]}", value=item["description"], inline=False)
+    await ctx.send(embed=embed)
+    print(f"{now()} [{ctx.author.name}] shop: viewed the shop")
 
 bot.run(TOKEN)
