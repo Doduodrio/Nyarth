@@ -54,13 +54,13 @@ items = {
         "name": "corn",
         "icon": "🌽",
         "description": "An ear of juicy corn, ready for popping.",
-        "price": 100
+        "price": 50
     },
     "popcorn": {
         "name": "popcorn",
         "icon": "🍿",
         "description": "A steaming box of buttery popcorn.",
-        "price": 200
+        "price": 100
     },
     "seedling": {
         "name": "seedling",
@@ -542,20 +542,25 @@ async def shop(ctx):
 
 @bot.command()
 @command_timeout(0)
-async def buy(ctx, item_name=None):
-    if item_name is None:
+async def buy(ctx, quantity=None, *args):
+    if quantity is None and len(args) == 0:
         await ctx.send("❌ No item specified.")
         print(f"[ERROR] {now} [{ctx.author.name}] buy: no item specified")
         return False
     
-    # find item
-    item = None
-    for i in items.keys():
-        if i == item_name.lower():
-            item = items[i]
-            break
+    # get item name
+    try:
+        quantity = int(quantity)
+        item_name = " ".join(args).lower()
+    except:
+        item_name = " ".join([quantity, *args]).lower()
+        quantity = 1
     
-    if item is None:
+    # get item data
+    try:
+        item = items[item_name]
+    except KeyError:
+        # make sure item exists
         await ctx.send("❌ Item not found.")
         print(f"[ERROR] {now()} [{ctx.author.name}] buy: item not found ({item_name})")
         return False
@@ -571,17 +576,17 @@ async def buy(ctx, item_name=None):
     balance = get_balance(cache, supabase, ctx.author.name)
     
     # check if the user has enough money
-    if balance < item["price"]:
-        await ctx.send(f"❌ You don't have enough 🪙 to buy this! You need {item["price"]-balance} more 🪙!")
-        print(f"[ERROR] {now()} [{ctx.author.name}] buy: not enough coins to buy {item_name} (missing {item["price"]-balance} coins)")
+    if balance < item["price"]*quantity:
+        await ctx.send(f"❌ You don't have enough 🪙 to buy this! You need {item["price"]*quantity-balance} more 🪙!")
+        print(f"[ERROR] {now()} [{ctx.author.name}] buy: not enough coins to buy {item_name} (missing {item["price"]*quantity-balance} coins)")
         return False
     
     # send message to user before making the slow api calls
-    await ctx.send(f"<@{ctx.author.id}> bought {item["icon"]} {item["name"].title()} for 🪙{item["price"]}!")
+    await ctx.send(f"<@{ctx.author.id}> bought {quantity}x {item["icon"]} {item["name"].title()} for 🪙{item["price"]*quantity}!")
     
     # deduct balance
-    supabase.table("user data").update({"balance": balance-item["price"]}).eq("username", ctx.author.name).execute()
-    cache.update(ctx.author.name, "balance", balance-item["price"])
+    supabase.table("user data").update({"balance": balance-item["price"]*quantity}).eq("username", ctx.author.name).execute()
+    cache.update(ctx.author.name, "balance", balance-item["price"]*quantity)
 
     # get inventory
     if (inv := cache.retrieve(ctx.author.name, "inventory")) is None:
@@ -597,27 +602,38 @@ async def buy(ctx, item_name=None):
     if item["name"] in [i["name"] for i in inv]:
         for i in inv:
             if i["name"] == item["name"]:
-                i["count"] += 1
+                i["count"] += quantity
                 break
     else:
         inv.append({
             "icon": item["icon"],
             "name": item["name"],
-            "count": 1
+            "count": quantity
         })
     supabase.table("user data").update({"inventory": inv}).eq("username", ctx.author.name).execute()
     cache.update(ctx.author.name, "inventory", inv)
 
     # log purchase
-    print(f"{now()} [{ctx.author.name}] buy: bought {item["name"]} for {item["price"]} coins")
+    print(f"{now()} [{ctx.author.name}] buy: bought {quantity} {item["name"]} for {item["price"]*quantity} coins")
 
 @bot.command()
 @command_timeout(0)
-async def sell(ctx, item_name=None):
-    if item_name is None:
+async def sell(ctx, quantity=None, *args):
+    if quantity is None and len(args) == 0:
         await ctx.send("❌ No item specified.")
         print(f"[ERROR] {now} [{ctx.author.name}] sell: no item specified")
         return False
+    
+    # get item name
+    try:
+        quantity = int(quantity)
+        item_name = " ".join(args).lower()
+    except:
+        if quantity.lower() == "all":
+            item_name = " ".join(args).lower()
+        else:
+            item_name = " ".join([quantity, *args]).lower()
+            quantity = 1
     
     # get inventory
     if (inv := cache.retrieve(ctx.author.name, "inventory")) is None:
@@ -630,11 +646,27 @@ async def sell(ctx, item_name=None):
         cache.update(ctx.author.name, "inventory", inv)
 
     # make sure item is in the inventory
-    if item_name not in [i["name"] for i in inv]:
+    item_index = -1
+    for i in range(9):
+        if item_name == inv[i]["name"]:
+            item_index = i
+            break
+
+    if item_index == -1:
         await ctx.send("❌ You don't have this item!")
         print(f"[ERROR] {now()} [{ctx.author.name}] sell: doesn't have item ({item_name})")
         return False
     
+    if quantity == "all":
+        quantity = inv[item_index]["count"]
+
+    # make sure there is enough of the item in the inventory
+    if inv[item_index]["count"] < quantity:
+        await ctx.send("❌ You don't have enough to sell!")
+        print(f"[ERROR] {now()} [{ctx.author.name}] sell: doesn't have enough to sell (has {item["count"]} {item_name}, wants to sell {quantity})")
+        return False
+    
+    # get item data
     try:
         item = items[item_name]
     except KeyError:
@@ -643,28 +675,26 @@ async def sell(ctx, item_name=None):
         return False
 
     # send message to user before making more api calls
-    await ctx.send(f"<@{ctx.author.id}> sold {item["icon"]} {item["name"].title()} for 🪙{item["price"]}!")
+    await ctx.send(f"<@{ctx.author.id}> sold {quantity}x {item["icon"]} {item["name"].title()} for 🪙{item["price"]*quantity}!")
     
     # get user balance
     balance = get_balance(cache, supabase, ctx.author.name)
 
     # increase balance
-    supabase.table("user data").update({"balance": balance+item["price"]}).eq("username", ctx.author.name).execute()
-    cache.update(ctx.author.name, "balance", balance+item["price"])
+    supabase.table("user data").update({"balance": balance+item["price"]*quantity}).eq("username", ctx.author.name).execute()
+    cache.update(ctx.author.name, "balance", balance+item["price"]*quantity)
     
     # remove item from inventory
-    for i in range(len(inv)):
-        if inv[i]["name"] == item["name"]:
-            if inv[i]["count"] == 1:
-                inv.pop(i)
-            else:
-                inv[i]["count"] -= 1
-            break
+    if inv[item_index]["name"] == item["name"]:
+        if inv[item_index]["count"]-quantity == 0:
+            inv.pop(item_index)
+        else:
+            inv[item_index]["count"] -= quantity
     supabase.table("user data").update({"inventory": inv}).eq("username", ctx.author.name).execute()
     cache.update(ctx.author.name, "inventory", inv)
 
     # log sale
-    print(f"{now()} [{ctx.author.name}] sell: sold {item["name"]} for {item["price"]} coins")
+    print(f"{now()} [{ctx.author.name}] sell: sold {quantity} {item["name"]} for {item["price"]*quantity} coins")
 
 @bot.command()
 @command_timeout(0)
@@ -703,34 +733,34 @@ async def farm(ctx, action=None, tile=None):
             return False
     
     if action is None or action.lower() == "view": # view farm
+        # check if any seedlings have matured or any corn has expired
+        update_needed = False
+        time_now = datetime.datetime.now().timestamp()
+        for i in range(9):
+            if farm_data[i]["contents"] == "dirt":
+                continue
+            elapsed = time_now - farm_data[i]["time"]
+            if farm_data[i]["contents"] == "seedling" and elapsed >= 0 and elapsed < 86400:
+                # mature seedling turns into corn
+                farm_data[i] = {
+                    "contents": "corn",
+                    "icon": "🌽",
+                    "time": farm_data[i]["time"]+86400
+                }
+                update_needed = True
+            elif (farm_data[i]["contents"] == "corn" and elapsed >= 0) or (farm_data[i]["contents"] == "seedling" and elapsed >= 86400):
+                # expired corn (or seedling that was supposed to turn into expired corn) turns into dirt
+                farm_data[i] = {
+                    "contents": "dirt",
+                    "icon": "🟫",
+                    "time": ""
+                }
+                update_needed = True
+        if update_needed:
+            supabase.table("user data").update({"farm": farm_data}).eq("username", ctx.author.name).execute()
+            cache.update(ctx.author.name, "farm", farm_data)
+        
         if tile is None: # view whole farm
-            # check if any seedlings have matured or any corn has expired
-            update_needed = False
-            time_now = datetime.datetime.now().timestamp()
-            for i in range(9):
-                if farm_data[i]["contents"] == "dirt":
-                    continue
-                elapsed = time_now - farm_data[i]["time"]
-                if farm_data[i]["contents"] == "seedling" and elapsed >= 0 and elapsed < 86400:
-                    # mature seedling turns into corn
-                    farm_data[i] = {
-                        "contents": "corn",
-                        "icon": "🌽",
-                        "time": farm_data[i]["time"]+86400
-                    }
-                    update_needed = True
-                elif (farm_data[i]["contents"] == "corn" and elapsed >= 0) or (farm_data[i]["contents"] == "seedling" and elapsed >= 86400):
-                    # expired corn (or seedling that was supposed to turn into expired corn) turns into dirt
-                    farm_data[i] = {
-                        "contents": "dirt",
-                        "icon": "🟫",
-                        "time": ""
-                    }
-                    update_needed = True
-            if update_needed:
-                supabase.table("user data").update({"farm": farm_data}).eq("username", ctx.author.name).execute()
-                cache.update(ctx.author.name, "farm", farm_data)
-
             embed = discord.Embed(
                 description="{}{}{}\n{}{}{}\n{}{}{}".format(*[i["icon"] for i in farm_data]),
                 color=discord.Color.gold()
@@ -820,7 +850,7 @@ async def farm(ctx, action=None, tile=None):
             return False
         
         # send message to user before making more api calls
-        harvested_corn = random.randint(1, 3)
+        harvested_corn = random.randint(1, 2)
         await ctx.send(f"<@{ctx.author.id}> harvested {harvested_corn} 🌽!")
 
         # remove corn from farm
