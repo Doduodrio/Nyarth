@@ -550,6 +550,7 @@ async def shop(ctx):
     for item in shop_items:
         item = items[item]
         embed.add_field(name=f"[{index}] {item["icon"]} {item["name"].title()} - 🪙{item["price"]}", value=item["description"], inline=False)
+        index += 1
     await ctx.send(embed=embed)
     print(f"{now()} [{ctx.author.name}] shop: viewed the shop")
 
