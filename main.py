@@ -180,12 +180,7 @@ async def gamble(ctx, amount=None):
     
     # get user balance
     if (balance := cache.retrieve(ctx.author.name, "balance")) is None:
-        response = supabase.table("user data").select("*").eq("username", ctx.author.name).execute()
-        if response.data:
-            balance = response.data[0]["balance"]
-        else:
-            supabase.table("user data").insert({"username": ctx.author.name, "balance": 0}).execute()
-            balance = 0
+        balance = get_balance(cache, supabase, ctx.author.name)
     
     # set amount if "all" was selected
     if amount == "all":
@@ -260,21 +255,11 @@ async def give(ctx, username=None, amount=None):
     
     # get user balance
     if (balance := cache.retrieve(ctx.author.name, "balance")) is None:
-        response = supabase.table("user data").select("*").eq("username", ctx.author.name).execute()
-        if response.data:
-            balance = response.data[0]["balance"]
-        else:
-            supabase.table("user data").insert({"username": ctx.author.name, "balance": 0}).execute()
-            balance = 0
+        balance = get_balance(cache, supabase, ctx.author.name)
     
     # get recipient balance 
     if (recipient_balance := cache.retrieve(recipient.name, "balance")) is None:
-        response = supabase.table("user data").select("*").eq("username", recipient.name).execute()
-        if response.data:
-            recipient_balance = response.data[0]["balance"]
-        else:
-            supabase.table("user data").insert({"username": recipient.name, "balance": 0}).execute()
-            recipient_balance = 0
+        balance = get_balance(cache, supabase, recipient.name)
     
     # set amount if "all" was selected
     if amount == "all":
@@ -553,5 +538,74 @@ async def shop(ctx):
         index += 1
     await ctx.send(embed=embed)
     print(f"{now()} [{ctx.author.name}] shop: viewed the shop")
+
+@bot.command()
+@command_timeout(0)
+async def buy(ctx, item_name=None):
+    if item_name is None:
+        await ctx.send("❌ No item specified.")
+        print(f"[ERROR] {now} [{ctx.author.name}] buy: no item specified")
+        return False
+    
+    # find item
+    item = None
+    for i in items.keys():
+        if i == item_name.lower():
+            item = items[i]
+            break
+    
+    if item is None:
+        await ctx.send("❌ Item not found.")
+        print(f"[ERROR] {now()} [{ctx.author.name}] buy: item not found ({item_name})")
+        return False
+    
+    # make sure item is sold in the shop
+    shop_items = ["seedling", "bucket"]
+    if item["name"] not in shop_items:
+        await ctx.send("❌ Item can't be bought.")
+        print(f"[ERROR] {now()} [{ctx.author.name}] buy: item can't be bought ({item_name})")
+        return False
+    
+    # get user balance
+    balance = get_balance(cache, supabase, ctx.author.name)
+    
+    # check if the user has enough money
+    if balance < item["price"]:
+        await ctx.send(f"❌ You don't have enough 🪙 to buy this! You need {item["price"]-balance} more 🪙!")
+        print(f"[ERROR] {now()} [{ctx.author.name}] buy: not enough coins to buy {item_name} (missing {item["price"]-balance} coins)")
+        return False
+    
+    # send message to user before making the slow api calls
+    await ctx.send(f"<@{ctx.author.id}> bought {item["icon"]} {item["name"].title()} for 🪙{item["price"]}!")
+    
+    # deduct balance
+    supabase.table("user data").update({"balance": balance-item["price"]}).eq("username", ctx.author.name).execute()
+    cache.update(ctx.author.name, "balance", balance-item["price"])
+
+    # get inventory
+    if (inv := cache.retrieve(ctx.author.name, "inventory")) is None:
+        response = supabase.table("user data").select("*").eq("username", ctx.author.name).execute()
+        if response.data:
+            inv = response.data[0]["inventory"]
+        else:
+            supabase.table("user data").insert({"username": ctx.author.name, "balance": 0, "inventory": []}).execute()
+            inv = []
+        cache.update(ctx.author.name, "inventory", inv)
+    
+    # add item to inventory
+    for i in inv:
+        if i["name"] == item["name"]:
+            i["count"] += 1
+            return
+    inv.append({
+        "icon": item["icon"],
+        "name": item["name"],
+        "count": 1
+    })
+    supabase.table("user data").update({"inventory": inv}).eq("username", ctx.author.name).execute()
+    cache.update(ctx.author.name, "inventory", inv)
+
+    # log purchase
+    print(f"{now()} [{ctx.author.name}] buy: bought {item["name"]}")
 
 bot.run(TOKEN)
