@@ -368,7 +368,8 @@ async def roast(ctx, username=None):
         "You haven't changed since the last time I saw you. You really should.",
         "If ignorance is bliss, you must be the happiest person on Earth.",
         "Oh, sorry, did the middle of my sentence interrupt the beginning of yours?",
-        "Don't worry, the first 40 years of childhood are always the hardest."
+        "Don't worry, the first 40 years of childhood are always the hardest.",
+        "When your mom dropped you off to school, she was arrested for littering."
     ]
     roast = random.choice(roasts)
 
@@ -433,76 +434,132 @@ async def help(ctx, command_name=None):
             "name": "ping",
             "aliases": [],
             "description": "Ping Nyarth.",
-            "usage": "%ping"
+            "usage": "%ping",
+            "category": "utility"
         },
         {
             "name": "balance",
             "aliases": ["bal"],
             "description": "Check how many 🪙 you have.",
-            "usage": "%balance (user)"
+            "usage": "%balance (user)",
+            "category": "money"
         },
         {
             "name": "work",
             "aliases": [],
             "description": "Go to work and earn up to 🪙100. If you do a bad job, you could lose up to 🪙100...",
-            "usage": "%work"
+            "usage": "%work",
+            "category": "money"
         },
         {
             "name": "gamble",
             "aliases": [],
             "description": "Gamble your 🪙! You could double your bet, but you could also lose it all...",
-            "usage": "%gamble [amount | all]"
+            "usage": "%gamble [amount | all]",
+            "category": "money"
         },
         {
             "name": "clearcache",
             "aliases": ["clear"],
             "description": "Reset all cooldowns and clear cached data. Only admin can use this command.",
-            "usage": "%clearcache"
+            "usage": "%clearcache",
+            "category": "utility"
         },
         {
             "name": "give",
             "aliases": [],
             "description": "Give another user some of your 🪙. Sharing is caring!",
-            "usage": "%give [user] [amount | all]"
+            "usage": "%give [user] [amount | all]",
+            "category": "money"
         },
         {
             "name": "leaderboard",
             "aliases": ["lb"],
             "description": "View a list the richest people in the server!",
-            "usage": "%leaderboard (page number)"
+            "usage": "%leaderboard (page)",
+            "category": "utility"
         },
         {
             "name": "roast",
             "aliases": [],
             "description": "Roast your friends!",
-            "usage": "%roast (user)"
+            "usage": "%roast (user)",
+            "category": "fun"
         },
         {
             "name": "inventory",
-            "aliases": [],
+            "aliases": ["inv"],
             "description": "View your inventory items.",
-            "usage": "%inventory (page number)"
+            "usage": "%inventory (page)",
+            "category": "utility"
         },
         {
             "name": "help",
             "aliases": [],
             "description": "View a list of all commands with descriptions.",
-            "usage": "%help (command name)"
+            "usage": "%help (command name)",
+            "category": "utility"
         },
         {
             "name": "shop",
             "aliases": [],
             "description": "View a list of available items to buy.",
-            "usage": "%shop"
+            "usage": "%shop",
+            "category": "shop"
+        },
+        {
+            "name": "buy",
+            "aliases": [],
+            "description": "Buy an item from the shop.",
+            "usage": "%buy (quantity) [item]",
+            "category": "shop"
+        },
+        {
+            "name": "sell",
+            "aliases": [],
+            "description": "Sell items from your inventory.",
+            "usage": "%sell (quantity | all) [item]",
+            "category": "shop"
+        },
+        {
+            "name": "farm",
+            "aliases": [],
+            "description": "View your farm. Tile and detailed views are available.",
+            "usage": "%farm (tile | details)",
+            "category": "farm"
+        },
+        {
+            "name": "plant",
+            "aliases": [],
+            "description": "Plant 🌱 in your farm.",
+            "usage": "%plant (tile)",
+            "category": "farm"
+        },
+        {
+            "name": "harvest",
+            "aliases": [],
+            "description": "Harvest 🌽 or other crops from your farm.",
+            "usage": "%harvest (tile)",
+            "category": "farm"
         }
     ]
     commands.sort(key=lambda x: x["name"])
 
+    categories = {
+        "utility": [],
+        "money": [],
+        "shop": [],
+        "farm": [],
+        "fun": []
+    }
+    for command in commands:
+        categories[command["category"]].append(command)
+
     if command_name is None:
         embed = discord.Embed(color=discord.Color.gold())
         embed.set_author(name="Help Menu", icon_url=bot.user.avatar.url)
-        for command in commands:
-            embed.add_field(name=", ".join([command["name"], *command["aliases"]]), value=f"> {command["description"]}", inline=False)
+        for category, cat_commands in categories.items():
+            embed.add_field(name=category.title(), value=", ".join([f"`{i["name"]}`" for i in cat_commands]), inline=False)
         await ctx.send(embed=embed)
         print(f"{now()} [{ctx.author.name}] help: viewed all commands")
     else:
@@ -523,6 +580,7 @@ async def help(ctx, command_name=None):
         if command["aliases"]:
             embed.add_field(name="Aliases", value=f"`{", ".join(command["aliases"])}`")
         embed.add_field(name="Usage", value=f"`{command["usage"]}`")
+        embed.add_field(name="Category", value=command["category"].title())
         await ctx.send(embed=embed)
         print(f"{now()} [{ctx.author.name}] help: viewed command {command["name"]}")
 
@@ -557,10 +615,14 @@ async def buy(ctx, quantity=None, *args):
         quantity = 1
     
     # get item data
-    try:
-        item = items[item_name]
-    except KeyError:
-        # make sure item exists
+    item = None
+    for name, i in items.items():
+        if item_name in name:
+            item = i
+            break
+    
+    # make sure item exists
+    if item is None:
         await ctx.send("❌ Item not found.")
         print(f"[ERROR] {now()} [{ctx.author.name}] buy: item not found ({item_name})")
         return False
@@ -579,6 +641,14 @@ async def buy(ctx, quantity=None, *args):
     if balance < item["price"]*quantity:
         await ctx.send(f"❌ You don't have enough 🪙 to buy this! You need {item["price"]*quantity-balance} more 🪙!")
         print(f"[ERROR] {now()} [{ctx.author.name}] buy: not enough coins to buy {item_name} (missing {item["price"]*quantity-balance} coins)")
+        return False
+    
+    # confirmation
+    await ctx.send(f"<@{ctx.author.id}> Are you sure you want to buy {quantity}x {item["icon"]} {item["name"].title()} for 🪙{item["price"]*quantity}? (y/n)")
+    message = await bot.wait_for("message", check=lambda m: (m.content.lower() == "y" or m.content.lower() == "n") and m.channel == ctx.channel)
+    if message.content.lower() != "y":
+        await ctx.send(f"<@{ctx.author.id}> Purchase cancelled.")
+        print(f"{now()} [{ctx.author.name}] buy: cancelled purchase of {quantity} {item["name"]} for {item["price"]*quantity} coins")
         return False
     
     # send message to user before making the slow api calls
@@ -648,7 +718,7 @@ async def sell(ctx, quantity=None, *args):
     # make sure item is in the inventory
     item_index = -1
     for i in range(len(inv)):
-        if item_name == inv[i]["name"]:
+        if item_name in inv[i]["name"]:
             item_index = i
             break
 
@@ -668,10 +738,18 @@ async def sell(ctx, quantity=None, *args):
     
     # get item data
     try:
-        item = items[item_name]
+        item = items[inv[item_index]["name"]]
     except KeyError:
         await ctx.send("❌ This item can't be sold!")
         print(f"[ERROR] {now()} [{ctx.author.name}] sell: can't sell item ({item_name})")
+        return False
+    
+    # confirmation
+    await ctx.send(f"<@{ctx.author.id}> Are you sure you want to sell {quantity}x {item["icon"]} {item["name"].title()} for 🪙{item["price"]*quantity}? (y/n)")
+    message = await bot.wait_for("message", check=lambda m: (m.content.lower() == "y" or m.content.lower() == "n") and m.channel == ctx.channel)
+    if message.content.lower() != "y":
+        await ctx.send(f"<@{ctx.author.id}> Sale cancelled.")
+        print(f"{now()} [{ctx.author.name}] sell: cancelled sale of {quantity} {item["name"]} for {item["price"]*quantity} coins")
         return False
 
     # send message to user before making more api calls
@@ -768,7 +846,7 @@ async def farm(ctx, mode=None):
         print(f"{now()} [{ctx.author.name}] farm: viewed tile {mode}")
     except:
         mode = mode.lower()
-        if mode.lower() == "detail": # detailed view
+        if mode.lower() in ["d", "detail", "details"]: # detailed view
             embed = discord.Embed(color=discord.Color.gold())
             embed.set_author(name=f"{ctx.author.name}'s Farm", icon_url=ctx.author.avatar.url)
             for i in range(9):
