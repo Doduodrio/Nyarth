@@ -76,7 +76,7 @@ async def on_ready():
 @command_timeout(0)
 async def ping(ctx):
     await ctx.send(f"Pong!")
-    print(f"{now()} ping: pinged bot")
+    log(ctx, "ping", "pinged bot")
 
 @bot.command(aliases=["bal"])
 @command_timeout(0)
@@ -86,7 +86,7 @@ async def balance(ctx, username=None):
     else:
         if (user := find_member(ctx, username)) is None:
             await ctx.send(f"❌ Member not found.")
-            print(f"[ERROR] {now()} [{ctx.author.name}] balance: invalid member {username}")
+            log(ctx, "balance", f"invalid member ({username})", error=True)
             return False
 
     balance = get_balance(cache, supabase, user.name)
@@ -95,7 +95,7 @@ async def balance(ctx, username=None):
     embed.set_author(name=user.name, icon_url=user.avatar.url)
     embed.add_field(name="Balance", value=f"🪙{balance}")
     await ctx.send(embed=embed)
-    print(f"{now()} [{ctx.author.name}] balance: got balance ({balance} coins) of {user.name} (id: {user.id})")
+    log(ctx, "balance", f"got balance ({balance} coins) of {user.name} (id: {user.id})")
 
 @bot.command()
 @command_timeout(300)
@@ -113,7 +113,7 @@ async def work(ctx):
     balance = get_balance(cache, supabase, ctx.author.name)
     supabase.table("user data").update({"balance": balance+amount}).eq("username", ctx.author.name).execute()
     cache.update(ctx.author.name, "balance", balance+amount)
-    print(f"{now()} [{ctx.author.name}] work: earned {amount} coins")
+    log(ctx, "work", f"earned {amount} coins")
 
 @bot.command()
 @command_timeout(15)
@@ -130,7 +130,7 @@ async def gamble(ctx, amount=None):
     # catch invalid or negative amounts
     if (amount is None) or (amount != "all" and amount <= 0):
         await ctx.send(f"❌ Invalid amount specified.")
-        print(f"[ERROR] {now()} [{ctx.author.name}] gamble: invalid amount")
+        log(ctx, "gamble", f"invalid amount ({amount})", error=True)
         return False
     
     # get user balance
@@ -141,7 +141,7 @@ async def gamble(ctx, amount=None):
     if amount == "all":
         if balance <= 0:
             await ctx.send(f"❌ You don't have enough 🪙 to gamble...")
-            print(f"[ERROR] {now()} [{ctx.author.name}] gamble: cannot gamble ({balance} balance)")
+            log(ctx, "gamble", f"cannot gamble ({balance} balance)")
             return False
         else:
             amount = balance
@@ -153,38 +153,36 @@ async def gamble(ctx, amount=None):
             await ctx.send(f"<@{ctx.author.id}> gambled and earned 🪙{new_balance - balance}!")
         else:
             await ctx.send(f"<@{ctx.author.id}> gambled and lost 🪙{balance - new_balance}...")
-        print(f"{now()} [{ctx.author.name}] gamble: gambled {amount} -> {new_amount}")
+        log(ctx, "gamble", f"gambled {amount} -> {new_amount} ({new_amount-amount})")
         supabase.table("user data").update({"balance": new_balance}).eq("username", ctx.author.name).execute()
         cache.update(ctx.author.name, "balance", new_balance)
     else:
         await ctx.send(f"❌ You don't have enough 🪙 to gamble... You need {amount-balance} more 🪙!")
-        print(f"[ERROR] {now()} [{ctx.author.name}] gamble: not enough money (missing {amount-balance} coins)")
+        log(ctx, "gamble", f"not enough money (missing {amount-balance} coins)", error=True)
         return False
 
 @bot.command(aliases=["clear"])
 async def clearcache(ctx):
     if ctx.author.name != "doduodrio":
         await ctx.send("❌ You can't use this command.")
-        print(f"[ERROR] {now()} [{ctx.author.name}] clearcache: can't use this command")
+        log(ctx, "clearcache", "can't use this command", error=True)
         return False
     else:
         cache.clear_all()
         await ctx.send(f"<@{ctx.author.id}> Cache cleared!")
-        print(f"{now()} [{ctx.author.name}] clearcache: cache cleared")
+        log(ctx, "clearcache", "cache cleared")
 
 @bot.command()
 @command_timeout(0)
 async def give(ctx, username=None, amount=None):
     if username is None:
         await ctx.send("❌ Specify a member to give 🪙 to.")
-        print(f"[ERROR] {now()} [{ctx.author.name}] give: recipient not specified")
+        log(ctx, "give", "recipient not specified", error=True)
         return False
     
-    recipient = find_member(ctx, username)
-    
-    if recipient is None:
+    if (recipient := find_member(ctx, username)) is None:
         await ctx.send(f"❌ Member not found.")
-        print(f"[ERROR] {now()} [{ctx.author.name}] give: invalid member {username}")
+        log(ctx, "give", f"invalid member {username}", error=True)
         return False
     
     # convert amount to an integer if it isn't "all"
@@ -199,13 +197,13 @@ async def give(ctx, username=None, amount=None):
     # catch invalid or negative amounts
     if (amount is None) or (amount != "all" and amount <= 0):
         await ctx.send(f"❌ Invalid amount specified.")
-        print(f"[ERROR] {now()} [{ctx.author.name}] give: invalid amount")
+        log(ctx, "give", f"invalid amount ({amount})", error=True)
         return False
 
     # cannot give yourself coins
     if ctx.author == recipient:
         await ctx.send(f"❌ You cannot give yourself 🪙")
-        print(f"[ERROR] {now()} [{ctx.author.name}] give: cannot give self coins")
+        log(ctx, "give", "cannot give self coins", error=True)
         return False
     
     # get user balance
@@ -220,7 +218,7 @@ async def give(ctx, username=None, amount=None):
     if amount == "all":
         if balance <= 0:
             await ctx.send(f"❌ You don't have any 🪙 to give...")
-            print(f"[ERROR] {now()} [{ctx.author.name}] give: cannot give ({balance} balance)")
+            log(ctx, "give", f"cannot give coins (balance: {balance})", error=True)
             return False
         else:
             amount = balance
@@ -231,10 +229,10 @@ async def give(ctx, username=None, amount=None):
         supabase.table("user data").update({"balance": recipient_balance+amount}).eq("username", recipient.name).execute()
         cache.update(ctx.author.name, "balance", balance-amount)
         cache.update(recipient.name, "balance", recipient_balance+amount)
-        print(f"{now()} [{ctx.author.name}] give: gave {amount} coins to {recipient.name}")
+        log(ctx, "give", f"gave {amount} coins to {recipient.name}")
     else:
         await ctx.send(f"❌ You don't have enough 🪙 to give... You need {amount-balance} more 🪙!")
-        print(f"[ERROR] {now()} [{ctx.author.name}] give: not enough money (missing {amount-balance} coins)")
+        log(ctx, "give", f"can't give {amount} coin to {recipient.name} (missing {amount-balance} coins)")
         return False
 
 @bot.command(aliases=["lb"])
@@ -248,7 +246,7 @@ async def leaderboard(ctx: commands.Context, page=None):
             page = int(page)
     except:
         await ctx.send("❌ Invalid page number.")
-        print(f"[ERROR] {now()} [{ctx.author.name}] leaderboard: invalid page number {page}")
+        log(ctx, "leaderboard", f"invalid page number ({page})", error=True)
         return False
 
     # retrieve data
@@ -281,7 +279,7 @@ async def leaderboard(ctx: commands.Context, page=None):
     max_pages = max(int((len(lb)-1)/10+1), 1)
     if page > max_pages:
         await ctx.send("❌ Invalid page number.")
-        print(f"[ERROR] {now()} [{ctx.author.name}] leaderboard: invalid page number {page}")
+        log(ctx, "leaderboard", f"invalid page number ({page})", error=True)
         return False
     
     padding = len(str(lb[0][1])) # length of the highest balance
@@ -297,7 +295,7 @@ async def leaderboard(ctx: commands.Context, page=None):
     embed.add_field(name=f"{ctx.guild.name} Leaderboard", value=lb_string)
     embed.set_footer(text=f"Page {page}/{max_pages}")
     await ctx.send(embed=embed)
-    print(f"{now()} [{ctx.author.name}] leaderboard: displayed leaderboard for {ctx.guild.name}")
+    log(ctx, "leaderboard", f"displayed leaderboard for {ctx.guild.namee}")
 
 @bot.command()
 @command_timeout(0)
@@ -308,12 +306,12 @@ async def roast(ctx, username=None):
         user = find_member(ctx, username)
         if user is None:
             await ctx.send(f"❌ Member not found.")
-            print(f"[ERROR] {now()} [{ctx.author.name}] balance: invalid member {username}")
+            log(ctx, "roast", f"invalid member ({username})", error=True)
             return False
     roast = random.choice(roasts)
 
     await ctx.send(f"<@{user.id}> {roast}")
-    print(f"{now()} [{ctx.author.name}] roast: roasted {user.name} (id: {user.id}) \"{roast}\"")
+    log(ctx, "roast", f"roasted {user.name} (id: {user.id}) \"{roast}\"")
 
 @bot.command(aliases=["inv"])
 @command_timeout(0)
@@ -326,7 +324,7 @@ async def inventory(ctx, page=None):
             page = int(page)
     except:
         await ctx.send("❌ Invalid page number.")
-        print(f"[ERROR] {now()} [{ctx.author.name}] inventory: invalid page number {page}")
+        log(ctx, "inventory", f"invalid page number ({page})", error=True)
         return False
     
     # retrieve inventory
@@ -343,7 +341,7 @@ async def inventory(ctx, page=None):
     max_pages = max(int((len(inv)-1)/10+1), 1)
     if page > max_pages:
         await ctx.send("❌ Invalid page number.")
-        print(f"[ERROR] {now()} [{ctx.author.name}] inventory: invalid page number {page}")
+        log(ctx, "inventory", f"invalid page number ({page})", error=True)
         return False
 
     embed = discord.Embed(color=discord.Color.gold())
@@ -363,7 +361,7 @@ async def inventory(ctx, page=None):
         )
     embed.set_footer(text=f"Page {page}/{max_pages}")
     await ctx.send(embed=embed)
-    print(f"{now()} [{ctx.author.name}] inventory: got inventory")
+    log(ctx, "inventory", "got inventory")
 
 @bot.command()
 @command_timeout(0)
@@ -374,7 +372,7 @@ async def help(ctx, command_name=None):
         for category, cat_commands in categories.items():
             embed.add_field(name=category.title(), value=", ".join([f"`{i["name"]}`" for i in cat_commands]), inline=False)
         await ctx.send(embed=embed)
-        print(f"{now()} [{ctx.author.name}] help: viewed all commands")
+        log(ctx, "help", "viewed all commands")
     else:
         command = None
         for c in commands:
@@ -383,7 +381,7 @@ async def help(ctx, command_name=None):
                 break
         if command is None:
             await ctx.send("❌ Command not found.")
-            print(f"[ERROR] {now()} [{ctx.author.name}] help: couldn't find command {command_name}")
+            log(ctx, "help", f"couldn't find command {command_name}", error=True)
             return False
         embed = discord.Embed(
             title=command["name"],
@@ -395,7 +393,7 @@ async def help(ctx, command_name=None):
         embed.add_field(name="Usage", value=f"`{command["usage"]}`")
         embed.add_field(name="Category", value=command["category"].title())
         await ctx.send(embed=embed)
-        print(f"{now()} [{ctx.author.name}] help: viewed command {command["name"]}")
+        log(ctx, "help", f"viewed command {command["name"]}")
 
 @bot.command()
 @command_timeout(0)
@@ -409,14 +407,14 @@ async def shop(ctx):
         embed.add_field(name=f"[{index}] {item["icon"]} {item["name"].title()} - 🪙{item["price"]}", value=item["description"], inline=False)
         index += 1
     await ctx.send(embed=embed)
-    print(f"{now()} [{ctx.author.name}] shop: viewed the shop")
+    log(ctx, "shop", "viewed the shop")
 
 @bot.command()
 @command_timeout(0)
 async def buy(ctx, quantity=None, *args):
     if quantity is None and len(args) == 0:
         await ctx.send("❌ No item specified.")
-        print(f"[ERROR] {now} [{ctx.author.name}] buy: no item specified")
+        log(ctx, "buy", "no item specified", error=True)
         return False
     
     # get item name
@@ -437,14 +435,14 @@ async def buy(ctx, quantity=None, *args):
     # make sure item exists
     if item is None:
         await ctx.send("❌ Item not found.")
-        print(f"[ERROR] {now()} [{ctx.author.name}] buy: item not found ({item_name})")
+        log(ctx, "buy", f"item not found ({item_name})", error=True)
         return False
     
     # make sure item is sold in the shop
     shop_items = ["seedling", "bucket"]
     if item["name"] not in shop_items:
         await ctx.send("❌ Item can't be bought.")
-        print(f"[ERROR] {now()} [{ctx.author.name}] buy: item can't be bought ({item_name})")
+        log(ctx, "buy", f"item can't be bought ({item_name})", error=True)
         return False
     
     # get user balance
@@ -453,7 +451,7 @@ async def buy(ctx, quantity=None, *args):
     # check if the user has enough money
     if balance < item["price"]*quantity:
         await ctx.send(f"❌ You don't have enough 🪙 to buy this! You need {item["price"]*quantity-balance} more 🪙!")
-        print(f"[ERROR] {now()} [{ctx.author.name}] buy: not enough coins to buy {item_name} (missing {item["price"]*quantity-balance} coins)")
+        log(ctx, "buy", f"not enough coins to buy {quantity} {item_name} (missing {item["price"]*quantity-balance} coins)", error=True)
         return False
     
     # confirmation
@@ -461,7 +459,7 @@ async def buy(ctx, quantity=None, *args):
     message = await bot.wait_for("message", check=lambda m: (m.content.lower() == "y" or m.content.lower() == "n") and m.channel == ctx.channel)
     if message.content.lower() != "y":
         await ctx.send(f"<@{ctx.author.id}> Purchase cancelled.")
-        print(f"{now()} [{ctx.author.name}] buy: cancelled purchase of {quantity} {item["name"]} for {item["price"]*quantity} coins")
+        log(ctx, "buy", f"cancelled purchase of {quantity} {item["name"]} for {item["price"]*quantity} coins")
         return False
     
     # send message to user before making the slow api calls
@@ -497,14 +495,14 @@ async def buy(ctx, quantity=None, *args):
     cache.update(ctx.author.name, "inventory", inv)
 
     # log purchase
-    print(f"{now()} [{ctx.author.name}] buy: bought {quantity} {item["name"]} for {item["price"]*quantity} coins")
+    log(ctx, "buy", f"bought {quantity} {item["namee"]} for {item["price"]*quantity} coins")
 
 @bot.command()
 @command_timeout(0)
 async def sell(ctx, quantity=None, *args):
     if quantity is None and len(args) == 0:
         await ctx.send("❌ No item specified.")
-        print(f"[ERROR] {now} [{ctx.author.name}] sell: no item specified")
+        log(ctx, "sell", "no item specified", error=True)
         return False
     
     # get item name
@@ -542,7 +540,7 @@ async def sell(ctx, quantity=None, *args):
 
     if item_index == -1:
         await ctx.send("❌ You don't have this item!")
-        print(f"[ERROR] {now()} [{ctx.author.name}] sell: doesn't have item ({item_name})")
+        log(ctx, "sell", f"doesn't have item ({item_name})", error=True)
         return False
     
     if quantity == "all":
@@ -551,7 +549,7 @@ async def sell(ctx, quantity=None, *args):
     # make sure there is enough of the item in the inventory
     if inv[item_index]["count"] < quantity:
         await ctx.send("❌ You don't have enough to sell!")
-        print(f"[ERROR] {now()} [{ctx.author.name}] sell: doesn't have enough to sell (has {item["count"]} {item_name}, wants to sell {quantity})")
+        log(ctx, "sell", f"doesn't have enough to sell (has {item["count"]} {item_name}, wants to sell {quantity})", error=True)
         return False
     
     # get item data
@@ -559,7 +557,7 @@ async def sell(ctx, quantity=None, *args):
         item = items[inv[item_index]["name"]]
     except KeyError:
         await ctx.send("❌ This item can't be sold!")
-        print(f"[ERROR] {now()} [{ctx.author.name}] sell: can't sell item ({item_name})")
+        log(ctx, "sell", f"can't sell item ({item_name})", error=True)
         return False
     
     # confirmation
@@ -567,7 +565,7 @@ async def sell(ctx, quantity=None, *args):
     message = await bot.wait_for("message", check=lambda m: (m.content.lower() == "y" or m.content.lower() == "n") and m.channel == ctx.channel)
     if message.content.lower() != "y":
         await ctx.send(f"<@{ctx.author.id}> Sale cancelled.")
-        print(f"{now()} [{ctx.author.name}] sell: cancelled sale of {quantity} {item["name"]} for {item["price"]*quantity} coins")
+        log(ctx, "sell", f"cancelled sale of {quantity} {item["name"]} for {item["price"]*quantity} coins")
         return False
 
     # send message to user before making more api calls
@@ -590,7 +588,7 @@ async def sell(ctx, quantity=None, *args):
     cache.update(ctx.author.name, "inventory", inv)
 
     # log sale
-    print(f"{now()} [{ctx.author.name}] sell: sold {quantity} {item["name"]} for {item["price"]*quantity} coins")
+    log(ctx, "sell", f"sold {quantity} {item["name"]} for {item["price"]*quantity} coins")
 
 @bot.command()
 @command_timeout(0)
@@ -646,7 +644,7 @@ async def farm(ctx, mode=None):
         )
         embed.set_author(name=f"{ctx.author.name}'s Farm", icon_url=ctx.author.avatar.url)
         await ctx.send(embed=embed)
-        print(f"{now()} [{ctx.author.name}] farm: viewed farm")
+        log(ctx, "farm", "viewed farm")
         return
     
     try: # view a specific tile
@@ -661,7 +659,7 @@ async def farm(ctx, mode=None):
                 embed.add_field(name="Expires", value=f"<t:{int(farm_data[mode-1]["time"])}:R>")
         embed.set_footer(text=f"Viewing Tile {mode}")
         await ctx.send(embed=embed)
-        print(f"{now()} [{ctx.author.name}] farm: viewed tile {mode}")
+        log(ctx, "farm", f"viewed tile {mode}")
     except:
         mode = mode.lower()
         if mode.lower() in ["d", "detail", "details"]: # detailed view
@@ -673,10 +671,10 @@ async def farm(ctx, mode=None):
                     message += f"<t:{int(farm_data[i]["time"])}:R>"
                 embed.add_field(name=f"[{i+1}] {farm_data[i]["icon"]} {farm_data[i]["contents"].title()}", value=message)
             await ctx.send(embed=embed)
-            print(f"{now()} [{ctx.author.name}] farm: viewed detailed view")
+            log(ctx, "farm", "viewed detailed view")
         else: # invalid parameter
             await ctx.send("❌ Invalid parameter.")
-            print(f"[ERROR] {now()} [{ctx.author.name}] farm: invalid parameter ({mode})")
+            log(ctx, "farm", f"invalid parameter ({mode})", error=True)
             return False
 
 @bot.command()
@@ -733,7 +731,7 @@ async def plant(ctx, tile=None):
                 raise Exception
         except:
             await ctx.send("❌ Invalid tile. Please select a tile from 1 - 9.")
-            print(f"[ERROR] {now()} [{ctx.author.name}] plant: invalid tile ({tile})")
+            log(ctx, "plant", f"invalid tile ({tile})", error=True)
             return False
     
     # generate list of plantable tiles
@@ -744,7 +742,7 @@ async def plant(ctx, tile=None):
     
     if len(plantable_tiles) == 0:
         await ctx.send("❌ You can't plant there.")
-        print(f"[ERROR] {now()} [{ctx.author.name}] plant: can't plant")
+        log(ctx, "plant", "can't plant", error=True)
         return False
     
     # retrieve inventory
@@ -766,7 +764,7 @@ async def plant(ctx, tile=None):
     
     if seedling_index == -1:
         await ctx.send("❌ You don't have any seedlings!")
-        print(f"{now()} [{ctx.author.name}] farm: doesn't have any seedlings")
+        log(ctx, "plant", "doesn't have any seedlings", error=True)
         return False
     
     # cap the plantable tiles at the number of seedlings the user has
@@ -798,7 +796,7 @@ async def plant(ctx, tile=None):
         }
     supabase.table("user data").update({"farm": farm_data}).eq("username", ctx.author.name).execute()
     cache.update(ctx.author.name, "farm", farm_data)
-    print(f"{now()} [{ctx.author.name}] farm: planted seedling")
+    log(ctx, "plant", f"planted {len(plantable_tiles)} seedlings")
 
 @bot.command()
 @command_timeout(0)
@@ -848,7 +846,7 @@ async def harvest(ctx, tile=None):
                 raise Exception
         except:
             await ctx.send("❌ Invalid tile. Please select a tile from 1 - 9.")
-            print(f"[ERROR] {now()} [{ctx.author.name}] harvest: invalid tile ({tile})")
+            log(ctx, "harvest", f"invalid tile {tile}", error=True)
             return False
     
     # generate list of tiles to harvest (1-9)
@@ -860,7 +858,7 @@ async def harvest(ctx, tile=None):
     # make sure there is corn to harvest
     if len(harvest_tiles) == 0:
         await ctx.send("❌ There is nothing to harvest.")
-        print(f"[ERROR] {now()} [{ctx.author.name}] harvest: nothing to harvest")
+        log(ctx, "harvest", "nothing to harvest", error=True)
         return False
     
     # send message to user before making more api calls
@@ -906,14 +904,14 @@ async def harvest(ctx, tile=None):
     supabase.table("user data").update({"inventory": inv}).eq("username", ctx.author.name).execute()
     cache.update(ctx.author.name, "inventory", inv)
 
-    print(f"{now()} [{ctx.author.name}] farm: harvested {harvested_corn} corn")
+    log(ctx, "harvest", f"harvested {harvested_corn} corn")
 
 @bot.command()
 @command_timeout(300)
 async def water(ctx, tile=None):
     if tile is None:
         await ctx.send("❌ No tile specified.")
-        print(f"[ERROR] {now()} [{ctx.author.name}] water: no tile specified")
+        log(ctx, "water", "no tile specified", error=True)
         return False
     
     # validate tile
@@ -923,7 +921,7 @@ async def water(ctx, tile=None):
             raise Exception
     except:
         await ctx.send("❌ Invalid tile. Please select a tile from 1 - 9.")
-        print(f"[ERROR] {now()} [{ctx.author.name}] water: invalid tile ({tile})")
+        log(ctx, "water", f"invalid tile ({tile})", error=True)
         return False
     
     # get inventory
@@ -939,7 +937,7 @@ async def water(ctx, tile=None):
     # make sure the user has a bucket
     if "bucket" not in [i["name"] for i in inv]:
         await ctx.send("❌ You don't have a bucket to water with!")
-        print(f"[ERROR] {now()} [{ctx.author.name}] water: no bucket")
+        log(ctx, "water", "no bucket", error=True)
         return False
     
     # retrieve farm data
@@ -961,13 +959,13 @@ async def water(ctx, tile=None):
     # make sure selected tile is a seedling
     if farm_data[tile-1]["contents"] != "seedling":
         await ctx.send(f"❌ You can't water {farm_data[tile-1]["icon"]}!")
-        print(f"[ERROR] {now()} [{ctx.author.name}] water: can't water {farm_data[tile-1]["contents"]}")
+        log(ctx, "water", f"can't water {farm_data[tile-1]["contents"]}")
         return False
     
     # speed up harvest by 5 minutes
     farm_data[tile-1]["time"] -= 300
     await ctx.send(f"<@{ctx.author.id}> watered the 🌱 in Tile {tile}! It will grow a bit faster!")
-    print(f"{now()} [{ctx.author.name}] water: watered tile {tile}")
+    log(ctx, "water", f"watered tile {tile}")
 
     # update farm
     supabase.table("user data").update({"farm": farm_data}).eq("username", ctx.author.name).execute()
