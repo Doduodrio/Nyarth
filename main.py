@@ -647,7 +647,7 @@ async def sell(ctx, quantity=None, *args):
 
     # make sure item is in the inventory
     item_index = -1
-    for i in range(9):
+    for i in range(len(inv)):
         if item_name == inv[i]["name"]:
             item_index = i
             break
@@ -698,13 +698,94 @@ async def sell(ctx, quantity=None, *args):
 
 @bot.command()
 @command_timeout(0)
-async def farm(ctx, action=None, tile=None):
-    if action is not None and action.lower() not in ["view", "plant", "harvest"]:
-        # invalid selection
-        await ctx.send("❌ Invalid option. Possible actions are `view`, `plant`, or `harvest`.")
-        print(f"[ERROR] {now()} [{ctx.author.name}] farm: can't do action ({action})")
-        return False
+async def farm(ctx, mode=None):
+    # retrieve farm data
+    if (farm_data := cache.retrieve(ctx.author.name, "farm")) is None:
+        response = supabase.table("user data").select("*").eq("username", ctx.author.name).execute()
+        if response.data and response.data[0]["farm"]:
+            farm_data = response.data[0]["farm"]
+        else:
+            farm_data = [
+                {
+                    "contents": "dirt",
+                    "icon": "🟫",
+                    "time": ""
+                } for i in range(9)
+            ]
+            supabase.table("user data").update({"farm": farm_data}).eq("username", ctx.author.name).execute()
+        cache.update(ctx.author.name, "farm", farm_data)
     
+    # update farm (check if any seedlings have matured or any corn has expired)
+    update_needed = False
+    time_now = datetime.datetime.now().timestamp()
+    for i in range(9):
+        if farm_data[i]["contents"] == "dirt":
+            continue
+        elapsed = time_now - farm_data[i]["time"]
+        if farm_data[i]["contents"] == "seedling" and elapsed >= 0 and elapsed < 86400:
+            # mature seedling turns into corn
+            farm_data[i] = {
+                "contents": "corn",
+                "icon": "🌽",
+                "time": farm_data[i]["time"]+86400
+            }
+            update_needed = True
+        elif (farm_data[i]["contents"] not in ("dirt", "seedling") and elapsed >= 0) or (farm_data[i]["contents"] == "seedling" and elapsed >= 86400):
+            # expired corn (or seedling that was supposed to turn into expired corn) turns into dirt
+            farm_data[i] = {
+                "contents": "dirt",
+                "icon": "🟫",
+                "time": ""
+            }
+            update_needed = True
+    if update_needed:
+        supabase.table("user data").update({"farm": farm_data}).eq("username", ctx.author.name).execute()
+        cache.update(ctx.author.name, "farm", farm_data)
+    
+    # view farm
+    if mode is None: # view whole farm
+        embed = discord.Embed(
+            description="{}{}{}\n{}{}{}\n{}{}{}".format(*[i["icon"] for i in farm_data]),
+            color=discord.Color.gold()
+        )
+        embed.set_author(name=f"{ctx.author.name}'s Farm", icon_url=ctx.author.avatar.url)
+        await ctx.send(embed=embed)
+        print(f"{now()} [{ctx.author.name}] farm: viewed farm")
+        return
+    
+    try: # view a specific tile
+        mode = int(mode)
+        embed = discord.Embed(color=discord.Color.gold())
+        embed.set_author(name=f"{ctx.author.name}'s Farm", icon_url=ctx.author.avatar.url)
+        embed.add_field(name="Contents", value=f"{farm_data[mode-1]["icon"]} {farm_data[mode-1]["contents"].title()}")
+        if farm_data[mode-1]["time"]:
+            if farm_data[mode-1]["contents"] == "seedling":
+                embed.add_field(name="Harvest", value=f"<t:{int(farm_data[mode-1]["time"])}:R>")
+            else:
+                embed.add_field(name="Expires", value=f"<t:{int(farm_data[mode-1]["time"])}:R>")
+        embed.set_footer(text=f"Viewing Tile {mode}")
+        await ctx.send(embed=embed)
+        print(f"{now()} [{ctx.author.name}] farm: viewed tile {mode}")
+    except:
+        mode = mode.lower()
+        if mode.lower() == "detail": # detailed view
+            embed = discord.Embed(color=discord.Color.gold())
+            embed.set_author(name=f"{ctx.author.name}'s Farm", icon_url=ctx.author.avatar.url)
+            for i in range(9):
+                message = "Harvest" if farm_data[i]["contents"] == "seedling" else "Expires" if farm_data[i]["contents"] != "dirt" else "It's dirt."
+                if farm_data[i]["time"]:
+                    message += f"<t:{int(farm_data[i]["time"])}:R>"
+                embed.add_field(name=f"[{i+1}] {farm_data[i]["icon"]} {farm_data[i]["contents"].title()}", value=message)
+            await ctx.send(embed=embed)
+            print(f"{now()} [{ctx.author.name}] farm: viewed detailed view")
+        else: # invalid parameter
+            await ctx.send("❌ Invalid parameter.")
+            print(f"[ERROR] {now()} [{ctx.author.name}] farm: invalid parameter ({mode})")
+            return False
+
+@bot.command()
+@command_timeout(0)
+async def plant(ctx, tile=None):
     # retrieve farm data
     if (farm_data := cache.retrieve(ctx.author.name, "farm")) is None:
         response = supabase.table("user data").select("*").eq("username", ctx.author.name).execute()
@@ -729,164 +810,158 @@ async def farm(ctx, action=None, tile=None):
                 raise Exception
         except:
             await ctx.send("❌ Invalid tile. Please select a tile from 1 - 9.")
-            print(f"[ERROR] {now()} [{ctx.author.name}] farm: invalid tile ({tile})")
+            print(f"[ERROR] {now()} [{ctx.author.name}] plant: invalid tile ({tile})")
             return False
     
-    if action is None or action.lower() == "view": # view farm
-        # check if any seedlings have matured or any corn has expired
-        update_needed = False
-        time_now = datetime.datetime.now().timestamp()
-        for i in range(9):
-            if farm_data[i]["contents"] == "dirt":
-                continue
-            elapsed = time_now - farm_data[i]["time"]
-            if farm_data[i]["contents"] == "seedling" and elapsed >= 0 and elapsed < 86400:
-                # mature seedling turns into corn
-                farm_data[i] = {
-                    "contents": "corn",
-                    "icon": "🌽",
-                    "time": farm_data[i]["time"]+86400
-                }
-                update_needed = True
-            elif (farm_data[i]["contents"] == "corn" and elapsed >= 0) or (farm_data[i]["contents"] == "seedling" and elapsed >= 86400):
-                # expired corn (or seedling that was supposed to turn into expired corn) turns into dirt
-                farm_data[i] = {
-                    "contents": "dirt",
-                    "icon": "🟫",
-                    "time": ""
-                }
-                update_needed = True
-        if update_needed:
-            supabase.table("user data").update({"farm": farm_data}).eq("username", ctx.author.name).execute()
-            cache.update(ctx.author.name, "farm", farm_data)
-        
-        if tile is None: # view whole farm
-            embed = discord.Embed(
-                description="{}{}{}\n{}{}{}\n{}{}{}".format(*[i["icon"] for i in farm_data]),
-                color=discord.Color.gold()
-            )
-            embed.set_author(name=f"{ctx.author.name}'s Farm", icon_url=ctx.author.avatar.url)
-            await ctx.send(embed=embed)
-            print(f"{now()} [{ctx.author.name}] farm: viewed farm")
+    # generate list of plantable tiles
+    if tile is not None:
+        plantable_tiles = [tile] if farm_data[tile-1]["contents"] == "dirt" else []
+    else:
+        plantable_tiles = [i+1 for i in range(9) if farm_data[i]["contents"] == "dirt"]
+    
+    if len(plantable_tiles) == 0:
+        await ctx.send("❌ You can't plant there.")
+        print(f"[ERROR] {now()} [{ctx.author.name}] plant: can't plant")
+        return False
+    
+    # retrieve inventory
+    if (inv := cache.retrieve(ctx.author.name, "inventory")) is None:
+        response = supabase.table("user data").select("*").eq("username", ctx.author.name).execute()
+        if response.data:
+            inv = response.data[0]["inventory"]
         else:
-            embed = discord.Embed(color=discord.Color.gold())
-            embed.set_author(name=f"{ctx.author.name}'s Farm", icon_url=ctx.author.avatar.url)
-            embed.add_field(name="Contents", value=f"{farm_data[tile-1]["icon"]} {farm_data[tile-1]["contents"].title()}")
-            if farm_data[tile-1]["time"]:
-                if farm_data[tile-1]["contents"] == "seedling":
-                    embed.add_field(name="Ready", value=f"<t:{int(farm_data[tile-1]["time"])}:R>")
-                elif farm_data[tile-1]["contents"] == "corn":
-                    embed.add_field(name="Expires", value=f"<t:{int(farm_data[tile-1]["time"])}:R>")
-            embed.set_footer(text=f"Viewing Tile {tile}")
-            await ctx.send(embed=embed)
-            print(f"{now()} [{ctx.author.name}] farm: viewed tile {tile}")
-        return
-
-    if action.lower() == "plant": # plant a seedling
-        if True not in [i["contents"] == "dirt" for i in farm_data]:
-            await ctx.send("❌ No available tiles to plant in.")
-            print(f"[ERROR] {now()} [{ctx.author.name}] farm: no available tiles to plant in")
-            return False
-
-        if tile is None:
-            for i in range(9):
-                if farm_data[i]["contents"] == "dirt":
-                    tile = i+1
-                    break
-        
-        if farm_data[tile-1]["contents"] != "dirt":
-            await ctx.send("❌ Can't plant here.")
-            print(f"[ERROR] {now()} [{ctx.author.name}] farm: can't plant in tile ({tile})")
-            return False
-        
-        # retrieve inventory
-        if (inv := cache.retrieve(ctx.author.name, "inventory")) is None:
-            response = supabase.table("user data").select("*").eq("username", ctx.author.name).execute()
-            if response.data:
-                inv = response.data[0]["inventory"]
-            else:
-                supabase.table("user data").insert({"username": ctx.author.name}).execute()
-                inv = []
-            cache.update(ctx.author.name, "inventory", inv)
-        
-        # make sure the user has a seedling to plant
-        if "seedling" not in [i["name"] for i in inv]:
-            await ctx.send("❌ You don't have any seedlings!")
-            print(f"{now()} [{ctx.author.name}] farm: doesn't have any seedlings")
-            return False
-        
-        # remove a seedling from their inventory
-        for i in range(len(inv)):
-            if inv[i]["name"] == "seedling":
-                if inv[i]["count"] == 1:
-                    inv.pop(i)
-                else:
-                    inv[i]["count"] -= 1
-                break
-        supabase.table("user data").update({"inventory": inv}).eq("username", ctx.author.name).execute()
+            supabase.table("user data").insert({"username": ctx.author.name}).execute()
+            inv = []
         cache.update(ctx.author.name, "inventory", inv)
+    
+    # make sure the user has a seedling to plant
+    seedling_index = -1
+    for i in range(len(inv)):
+        if inv[i]["name"] == "seedling":
+            seedling_index = i
+            break
+    
+    if seedling_index == -1:
+        await ctx.send("❌ You don't have any seedlings!")
+        print(f"{now()} [{ctx.author.name}] farm: doesn't have any seedlings")
+        return False
+    
+    # cap the plantable tiles at the number of seedlings the user has
+    while len(plantable_tiles) > inv[seedling_index]["count"]:
+        plantable_tiles.pop()
+    
+    # send message to user before making more api calls
+    ready_time = datetime.datetime.now().timestamp()+3600
+    if len(plantable_tiles) == 1:
+        await ctx.send(f"<@{ctx.author.id}> planted a 🌱 in Tile {plantable_tiles[0]}! It will be fully grown <t:{int(ready_time)}:R>")
+    else:
+        await ctx.send(f"<@{ctx.author.id}> planted {len(plantable_tiles)}x 🌱 in Tiles {", ".join([str(i) for i in plantable_tiles])}! They will be fully grown <t:{int(ready_time)}:R>")
+    
+    # remove seedlings from the inventory
+    if inv[seedling_index]["name"] == "seedling":
+        if inv[seedling_index]["count"] - len(plantable_tiles) == 0:
+            inv.pop(seedling_index)
+        else:
+            inv[seedling_index]["count"] -= len(plantable_tiles)
+    supabase.table("user data").update({"inventory": inv}).eq("username", ctx.author.name).execute()
+    cache.update(ctx.author.name, "inventory", inv)
 
-        # plant the seed
-        ready_time = datetime.datetime.now().timestamp()+3600
-        farm_data[tile-1] = {
+    # plant the seedlings
+    for i in plantable_tiles:
+        farm_data[i-1] = {
             "contents": "seedling",
             "icon": "🌱",
             "time": ready_time
         }
-        supabase.table("user data").update({"farm": farm_data}).eq("username", ctx.author.name).execute()
-        cache.update(ctx.author.name, "farm", farm_data)
-        await ctx.send(f"<@{ctx.author.id}> planted a 🌱 in Tile {tile}! It will be fully grown <t:{int(ready_time)}:R>")
-        print(f"{now()} [{ctx.author.name}] farm: planted seedling")
-    elif action.lower() == "harvest": # harvest corn
-        if tile is None:
-            for i in range(9):
-                if farm_data[i]["contents"] == "corn":
-                    tile = i+1
-                    break
-        
-        if (True not in [i["contents"] == "corn" for i in farm_data]) or (farm_data[tile-1]["contents"] != "corn"):
-            await ctx.send("❌ There is nothing to harvest.")
-            print(f"[ERROR] {now()} [{ctx.author.name}] farm: nothing to harvest")
-            return False
-        
-        # send message to user before making more api calls
-        harvested_corn = random.randint(1, 2)
-        await ctx.send(f"<@{ctx.author.id}> harvested {harvested_corn} 🌽!")
+    supabase.table("user data").update({"farm": farm_data}).eq("username", ctx.author.name).execute()
+    cache.update(ctx.author.name, "farm", farm_data)
+    print(f"{now()} [{ctx.author.name}] farm: planted seedling")
 
-        # remove corn from farm
-        farm_data[tile-1] = {
+@bot.command()
+@command_timeout(0)
+async def harvest(ctx, tile=None):
+    # retrieve farm data
+    if (farm_data := cache.retrieve(ctx.author.name, "farm")) is None:
+        response = supabase.table("user data").select("*").eq("username", ctx.author.name).execute()
+        if response.data and response.data[0]["farm"]:
+            farm_data = response.data[0]["farm"]
+        else:
+            farm_data = [
+                {
+                    "contents": "dirt",
+                    "icon": "🟫",
+                    "time": ""
+                } for i in range(9)
+            ]
+            supabase.table("user data").update({"farm": farm_data}).eq("username", ctx.author.name).execute()
+        cache.update(ctx.author.name, "farm", farm_data)
+    
+    # validate tile if provided
+    if tile is not None:
+        try:
+            tile = int(tile)
+            if tile <= 0 or tile > 9:
+                raise Exception
+        except:
+            await ctx.send("❌ Invalid tile. Please select a tile from 1 - 9.")
+            print(f"[ERROR] {now()} [{ctx.author.name}] harvest: invalid tile ({tile})")
+            return False
+    
+    # generate list of tiles to harvest (1-9)
+    if tile is not None:
+        harvest_tiles = [tile] if farm_data[tile-1]["contents"] == "corn" else []
+    else:
+        harvest_tiles = [i+1 for i in range(9) if farm_data[i]["contents"] == "corn"]
+
+    # make sure there is corn to harvest
+    if len(harvest_tiles) == 0:
+        await ctx.send("❌ There is nothing to harvest.")
+        print(f"[ERROR] {now()} [{ctx.author.name}] harvest: nothing to harvest")
+        return False
+    
+    # send message to user before making more api calls
+    harvested_corn = sum([random.randint(1, 2) for i in harvest_tiles])
+    if len(harvest_tiles) == 1:
+        harvest_tile_string = f"Tile {harvest_tiles[0]}"
+    else:
+        harvest_tile_string = f"Tiles {", ".join([str(i) for i in harvest_tiles])}"
+    await ctx.send(f"<@{ctx.author.id}> harvested {harvested_corn} 🌽 from {harvest_tile_string}!")
+
+    # remove corn from farm
+    for i in harvest_tiles:
+        farm_data[i-1] = {
             "contents": "dirt",
             "icon": "🟫",
             "time": ""
         }
-        supabase.table("user data").update({"farm": farm_data}).eq("username", ctx.author.name).execute()
-        cache.update(ctx.author.name, "farm", farm_data)
+    supabase.table("user data").update({"farm": farm_data}).eq("username", ctx.author.name).execute()
+    cache.update(ctx.author.name, "farm", farm_data)
 
-        # get inventory
-        if (inv := cache.retrieve(ctx.author.name, "inventory")) is None:
-            response = supabase.table("user data").select("*").eq("username", ctx.author.name).execute()
-            if response.data:
-                inv = response.data[0]["inventory"]
-            else:
-                supabase.table("user data").insert({"username": ctx.author.name}).execute()
-                inv = []
-            cache.update(ctx.author.name, "inventory", inv)
-    
-        # add random amount of corn to inventory
-        if "corn" in [i["name"] for i in inv]:
-            for i in inv:
-                if i["name"] == "corn":
-                    i["count"] += harvested_corn
-                    break
+    # get inventory
+    if (inv := cache.retrieve(ctx.author.name, "inventory")) is None:
+        response = supabase.table("user data").select("*").eq("username", ctx.author.name).execute()
+        if response.data:
+            inv = response.data[0]["inventory"]
         else:
-            inv.append({
-                "icon": "🌽",
-                "name": "corn",
-                "count": harvested_corn
-            })
-        supabase.table("user data").update({"inventory": inv}).eq("username", ctx.author.name).execute()
+            supabase.table("user data").insert({"username": ctx.author.name}).execute()
+            inv = []
         cache.update(ctx.author.name, "inventory", inv)
 
-        print(f"{now()} [{ctx.author.name}] farm: harvested {harvested_corn} corn")
+    # add corn to inventory
+    if "corn" in [i["name"] for i in inv]:
+        for i in inv:
+            if i["name"] == "corn":
+                i["count"] += harvested_corn
+                break
+    else:
+        inv.append({
+            "icon": "🌽",
+            "name": "corn",
+            "count": harvested_corn
+        })
+    supabase.table("user data").update({"inventory": inv}).eq("username", ctx.author.name).execute()
+    cache.update(ctx.author.name, "inventory", inv)
+
+    print(f"{now()} [{ctx.author.name}] farm: harvested {harvested_corn} corn")
 
 bot.run(TOKEN)
