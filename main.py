@@ -54,7 +54,7 @@ items = {
         "name": "corn",
         "icon": "🌽",
         "description": "An ear of juicy corn, ready for popping.",
-        "price": 50
+        "price": 20
     },
     "popcorn": {
         "name": "popcorn",
@@ -920,7 +920,7 @@ async def harvest(ctx, tile=None):
         return False
     
     # send message to user before making more api calls
-    harvested_corn = sum([random.randint(1, 2) for i in harvest_tiles])
+    harvested_corn = sum([random.randint(1, 5) for i in harvest_tiles])
     if len(harvest_tiles) == 1:
         harvest_tile_string = f"Tile {harvest_tiles[0]}"
     else:
