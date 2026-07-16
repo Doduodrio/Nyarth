@@ -717,10 +717,15 @@ async def sell(ctx, quantity=None, *args):
 
     # make sure item is in the inventory
     item_index = -1
-    for i in range(len(inv)):
-        if item_name in inv[i]["name"]:
+    for i in range(len(inv)): # check for exact matches
+        if item_name == inv[i]["name"]:
             item_index = i
             break
+    if item_index == -1: # check for approximate matches
+        for i in range(len(inv)):
+            if item_name in inv[i]["name"]:
+                item_index = i
+                break
 
     if item_index == -1:
         await ctx.send("❌ You don't have this item!")
@@ -880,6 +885,33 @@ async def plant(ctx, tile=None):
             supabase.table("user data").update({"farm": farm_data}).eq("username", ctx.author.name).execute()
         cache.update(ctx.author.name, "farm", farm_data)
     
+    # update farm (check if any seedlings have matured or any corn has expired)
+    update_needed = False
+    time_now = datetime.datetime.now().timestamp()
+    for i in range(9):
+        if farm_data[i]["contents"] == "dirt":
+            continue
+        elapsed = time_now - farm_data[i]["time"]
+        if farm_data[i]["contents"] == "seedling" and elapsed >= 0 and elapsed < 86400:
+            # mature seedling turns into corn
+            farm_data[i] = {
+                "contents": "corn",
+                "icon": "🌽",
+                "time": farm_data[i]["time"]+86400
+            }
+            update_needed = True
+        elif (farm_data[i]["contents"] not in ("dirt", "seedling") and elapsed >= 0) or (farm_data[i]["contents"] == "seedling" and elapsed >= 86400):
+            # expired corn (or seedling that was supposed to turn into expired corn) turns into dirt
+            farm_data[i] = {
+                "contents": "dirt",
+                "icon": "🟫",
+                "time": ""
+            }
+            update_needed = True
+    if update_needed:
+        supabase.table("user data").update({"farm": farm_data}).eq("username", ctx.author.name).execute()
+        cache.update(ctx.author.name, "farm", farm_data)
+    
     # validate tile if provided
     if tile is not None:
         try:
@@ -974,6 +1006,27 @@ async def harvest(ctx, tile=None):
             supabase.table("user data").update({"farm": farm_data}).eq("username", ctx.author.name).execute()
         cache.update(ctx.author.name, "farm", farm_data)
     
+    # update farm (check if any seedlings have matured or any corn has expired)
+    time_now = datetime.datetime.now().timestamp()
+    for i in range(9):
+        if farm_data[i]["contents"] == "dirt":
+            continue
+        elapsed = time_now - farm_data[i]["time"]
+        if farm_data[i]["contents"] == "seedling" and elapsed >= 0 and elapsed < 86400:
+            # mature seedling turns into corn
+            farm_data[i] = {
+                "contents": "corn",
+                "icon": "🌽",
+                "time": farm_data[i]["time"]+86400
+            }
+        elif (farm_data[i]["contents"] not in ("dirt", "seedling") and elapsed >= 0) or (farm_data[i]["contents"] == "seedling" and elapsed >= 86400):
+            # expired corn (or seedling that was supposed to turn into expired corn) turns into dirt
+            farm_data[i] = {
+                "contents": "dirt",
+                "icon": "🟫",
+                "time": ""
+            }
+    
     # validate tile if provided
     if tile is not None:
         try:
@@ -1041,5 +1094,70 @@ async def harvest(ctx, tile=None):
     cache.update(ctx.author.name, "inventory", inv)
 
     print(f"{now()} [{ctx.author.name}] farm: harvested {harvested_corn} corn")
+
+@bot.command()
+@command_timeout(300)
+async def water(ctx, tile=None):
+    if tile is None:
+        await ctx.send("❌ No tile specified.")
+        print(f"[ERROR] {now()} [{ctx.author.name}] water: no tile specified")
+        return False
+    
+    # validate tile
+    try:
+        tile = int(tile)
+        if tile <= 0 or tile > 9:
+            raise Exception
+    except:
+        await ctx.send("❌ Invalid tile. Please select a tile from 1 - 9.")
+        print(f"[ERROR] {now()} [{ctx.author.name}] water: invalid tile ({tile})")
+        return False
+    
+    # get inventory
+    if (inv := cache.retrieve(ctx.author.name, "inventory")) is None:
+        response = supabase.table("user data").select("*").eq("username", ctx.author.name).execute()
+        if response.data:
+            inv = response.data[0]["inventory"]
+        else:
+            supabase.table("user data").insert({"username": ctx.author.name}).execute()
+            inv = []
+        cache.update(ctx.author.name, "inventory", inv)
+
+    # make sure the user has a bucket
+    if "bucket" not in [i["name"] for i in inv]:
+        await ctx.send("❌ You don't have a bucket to water with!")
+        print(f"[ERROR] {now()} [{ctx.author.name}] water: no bucket")
+        return False
+    
+    # retrieve farm data
+    if (farm_data := cache.retrieve(ctx.author.name, "farm")) is None:
+        response = supabase.table("user data").select("*").eq("username", ctx.author.name).execute()
+        if response.data and response.data[0]["farm"]:
+            farm_data = response.data[0]["farm"]
+        else:
+            farm_data = [
+                {
+                    "contents": "dirt",
+                    "icon": "🟫",
+                    "time": ""
+                } for i in range(9)
+            ]
+            supabase.table("user data").update({"farm": farm_data}).eq("username", ctx.author.name).execute()
+        cache.update(ctx.author.name, "farm", farm_data)
+
+    # make sure selected tile is a seedling
+    if farm_data[tile-1]["contents"] != "seedling":
+        await ctx.send(f"❌ You can't water {farm_data[tile-1]["icon"]}!")
+        print(f"[ERROR] {now()} [{ctx.author.name}] water: can't water {farm_data[tile-1]["contents"]}")
+        return False
+    
+    # speed up harvest by 5 minutes
+    farm_data[tile-1]["time"] -= 300
+    await ctx.send(f"<@{ctx.author.id}> watered the 🌱 in Tile {tile}! It will grow a bit faster!")
+    print(f"{now()} [{ctx.author.name}] water: watered tile {tile}")
+
+    # update farm
+    supabase.table("user data").update({"farm": farm_data}).eq("username", ctx.author.name).execute()
+    cache.update(ctx.author.name, "farm", farm_data)
 
 bot.run(TOKEN)
