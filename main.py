@@ -212,7 +212,7 @@ async def give(ctx, username=None, amount=None):
     
     # get recipient balance 
     if (recipient_balance := cache.retrieve(recipient.name, "balance")) is None:
-        balance = get_balance(cache, supabase, recipient.name)
+        recipient_balance = get_balance(cache, supabase, recipient.name)
     
     # set amount if "all" was selected
     if amount == "all":
@@ -295,7 +295,7 @@ async def leaderboard(ctx: commands.Context, page=None):
     embed.add_field(name=f"{ctx.guild.name} Leaderboard", value=lb_string)
     embed.set_footer(text=f"Page {page}/{max_pages}")
     await ctx.send(embed=embed)
-    log(ctx, "leaderboard", f"displayed leaderboard for {ctx.guild.namee}")
+    log(ctx, "leaderboard", f"displayed leaderboard for {ctx.guild.name}")
 
 @bot.command()
 @command_timeout(0)
@@ -495,7 +495,7 @@ async def buy(ctx, quantity=None, *args):
     cache.update(ctx.author.name, "inventory", inv)
 
     # log purchase
-    log(ctx, "buy", f"bought {quantity} {item["namee"]} for {item["price"]*quantity} coins")
+    log(ctx, "buy", f"bought {quantity} {item["name"]} for {item["price"]*quantity} coins")
 
 @bot.command()
 @command_timeout(0)
