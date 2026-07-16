@@ -24,6 +24,9 @@ def now():
         if len(date[i])==1: date[i] = '0' + date[i]
     return '[{}-{}-{} {}:{}:{}]'.format(*date)
 
+def log(ctx: commands.Context, command_name: str, message: str, error: bool = False):
+    print(f"{"[ERROR]" if error else ""} {now()} [{ctx.author.name}] {command_name}: {message}")
+
 async def command_timeout_check(ctx: commands.Context, last_used: datetime.datetime, timeout: int):
     # last_used: datetime object
     # timeout  : # of seconds between uses
@@ -42,13 +45,8 @@ async def command_timeout_check(ctx: commands.Context, last_used: datetime.datet
     ]
     units = ["hours", "minutes", "seconds"]
     time_string = ", ".join([f"{delay[i]} {units[i]}" for i in range(3) if delay[i] > 0])
-    if time_string == "":
-        return False
-
-    await ctx.send(f"❌ You can use this command again in `{time_string}`.")
-    print(f"{now()} [{ctx.author.name}] work: command timeout ({time_string} left)")
-
-    return True
+    
+    return time_string or False
 
 def find_member(ctx: commands.Context, username: str):
     if username is None:
