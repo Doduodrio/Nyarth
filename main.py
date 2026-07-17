@@ -134,8 +134,7 @@ async def gamble(ctx, amount=None):
         return False
     
     # get user balance
-    if (balance := cache.retrieve(ctx.author.name, "balance")) is None:
-        balance = get_balance(cache, supabase, ctx.author.name)
+    balance = get_balance(cache, supabase, ctx.author.name)
     
     # set amount if "all" was selected
     if amount == "all":
@@ -207,12 +206,10 @@ async def give(ctx, username=None, amount=None):
         return False
     
     # get user balance
-    if (balance := cache.retrieve(ctx.author.name, "balance")) is None:
-        balance = get_balance(cache, supabase, ctx.author.name)
+    balance = get_balance(cache, supabase, ctx.author.name)
     
-    # get recipient balance 
-    if (recipient_balance := cache.retrieve(recipient.name, "balance")) is None:
-        recipient_balance = get_balance(cache, supabase, recipient.name)
+    # get recipient balance
+    recipient_balance = get_balance(cache, supabase, recipient.name)
     
     # set amount if "all" was selected
     if amount == "all":
@@ -328,14 +325,7 @@ async def inventory(ctx, page=None):
         return False
     
     # retrieve inventory
-    if (inv := cache.retrieve(ctx.author.name, "inventory")) is None:
-        response = supabase.table("user data").select("*").eq("username", ctx.author.name).execute()
-        if response.data:
-            inv = response.data[0]["inventory"]
-        else:
-            supabase.table("user data").insert({"username": ctx.author.name}).execute()
-            inv = []
-        cache.update(ctx.author.name, "inventory", inv)
+    inv = get_inventory(cache, supabase, ctx.author.name)
 
     # validate page number
     max_pages = max(int((len(inv)-1)/10+1), 1)
@@ -470,14 +460,7 @@ async def buy(ctx, quantity=None, *args):
     cache.update(ctx.author.name, "balance", balance-item["price"]*quantity)
 
     # get inventory
-    if (inv := cache.retrieve(ctx.author.name, "inventory")) is None:
-        response = supabase.table("user data").select("*").eq("username", ctx.author.name).execute()
-        if response.data:
-            inv = response.data[0]["inventory"]
-        else:
-            supabase.table("user data").insert({"username": ctx.author.name}).execute()
-            inv = []
-        cache.update(ctx.author.name, "inventory", inv)
+    inv = get_inventory(cache, supabase, ctx.author.name)
     
     # add item to inventory
     if item["name"] in [i["name"] for i in inv]:
@@ -517,14 +500,7 @@ async def sell(ctx, quantity=None, *args):
             quantity = 1
     
     # get inventory
-    if (inv := cache.retrieve(ctx.author.name, "inventory")) is None:
-        response = supabase.table("user data").select("*").eq("username", ctx.author.name).execute()
-        if response.data:
-            inv = response.data[0]["inventory"]
-        else:
-            supabase.table("user data").insert({"username": ctx.author.name}).execute()
-            inv = []
-        cache.update(ctx.author.name, "inventory", inv)
+    inv = get_inventory(cache, supabase, ctx.author.name)
 
     # make sure item is in the inventory
     item_index = -1
@@ -594,47 +570,10 @@ async def sell(ctx, quantity=None, *args):
 @command_timeout(0)
 async def farm(ctx, mode=None):
     # retrieve farm data
-    if (farm_data := cache.retrieve(ctx.author.name, "farm")) is None:
-        response = supabase.table("user data").select("*").eq("username", ctx.author.name).execute()
-        if response.data and response.data[0]["farm"]:
-            farm_data = response.data[0]["farm"]
-        else:
-            farm_data = [
-                {
-                    "contents": "dirt",
-                    "icon": "🟫",
-                    "time": ""
-                } for i in range(9)
-            ]
-            supabase.table("user data").update({"farm": farm_data}).eq("username", ctx.author.name).execute()
-        cache.update(ctx.author.name, "farm", farm_data)
+    farm_data = get_farm_data(cache, supabase, ctx.author.name)
     
     # update farm (check if any seedlings have matured or any corn has expired)
-    update_needed = False
-    time_now = datetime.datetime.now().timestamp()
-    for i in range(9):
-        if farm_data[i]["contents"] == "dirt":
-            continue
-        elapsed = time_now - farm_data[i]["time"]
-        if farm_data[i]["contents"] == "seedling" and elapsed >= 0 and elapsed < 86400:
-            # mature seedling turns into corn
-            farm_data[i] = {
-                "contents": "corn",
-                "icon": "🌽",
-                "time": farm_data[i]["time"]+86400
-            }
-            update_needed = True
-        elif (farm_data[i]["contents"] not in ("dirt", "seedling") and elapsed >= 0) or (farm_data[i]["contents"] == "seedling" and elapsed >= 86400):
-            # expired corn (or seedling that was supposed to turn into expired corn) turns into dirt
-            farm_data[i] = {
-                "contents": "dirt",
-                "icon": "🟫",
-                "time": ""
-            }
-            update_needed = True
-    if update_needed:
-        supabase.table("user data").update({"farm": farm_data}).eq("username", ctx.author.name).execute()
-        cache.update(ctx.author.name, "farm", farm_data)
+    farm_data = update_farm_data(cache, supabase, ctx.author.name, farm_data)
     
     # view farm
     if mode is None: # view whole farm
@@ -681,47 +620,10 @@ async def farm(ctx, mode=None):
 @command_timeout(0)
 async def plant(ctx, tile=None):
     # retrieve farm data
-    if (farm_data := cache.retrieve(ctx.author.name, "farm")) is None:
-        response = supabase.table("user data").select("*").eq("username", ctx.author.name).execute()
-        if response.data and response.data[0]["farm"]:
-            farm_data = response.data[0]["farm"]
-        else:
-            farm_data = [
-                {
-                    "contents": "dirt",
-                    "icon": "🟫",
-                    "time": ""
-                } for i in range(9)
-            ]
-            supabase.table("user data").update({"farm": farm_data}).eq("username", ctx.author.name).execute()
-        cache.update(ctx.author.name, "farm", farm_data)
+    farm_data = get_farm_data(cache, supabase, ctx.author.name)
     
     # update farm (check if any seedlings have matured or any corn has expired)
-    update_needed = False
-    time_now = datetime.datetime.now().timestamp()
-    for i in range(9):
-        if farm_data[i]["contents"] == "dirt":
-            continue
-        elapsed = time_now - farm_data[i]["time"]
-        if farm_data[i]["contents"] == "seedling" and elapsed >= 0 and elapsed < 86400:
-            # mature seedling turns into corn
-            farm_data[i] = {
-                "contents": "corn",
-                "icon": "🌽",
-                "time": farm_data[i]["time"]+86400
-            }
-            update_needed = True
-        elif (farm_data[i]["contents"] not in ("dirt", "seedling") and elapsed >= 0) or (farm_data[i]["contents"] == "seedling" and elapsed >= 86400):
-            # expired corn (or seedling that was supposed to turn into expired corn) turns into dirt
-            farm_data[i] = {
-                "contents": "dirt",
-                "icon": "🟫",
-                "time": ""
-            }
-            update_needed = True
-    if update_needed:
-        supabase.table("user data").update({"farm": farm_data}).eq("username", ctx.author.name).execute()
-        cache.update(ctx.author.name, "farm", farm_data)
+    farm_data = update_farm_data(cache, supabase, ctx.author.name, farm_data)
     
     # validate tile if provided
     if tile is not None:
@@ -746,14 +648,7 @@ async def plant(ctx, tile=None):
         return False
     
     # retrieve inventory
-    if (inv := cache.retrieve(ctx.author.name, "inventory")) is None:
-        response = supabase.table("user data").select("*").eq("username", ctx.author.name).execute()
-        if response.data:
-            inv = response.data[0]["inventory"]
-        else:
-            supabase.table("user data").insert({"username": ctx.author.name}).execute()
-            inv = []
-        cache.update(ctx.author.name, "inventory", inv)
+    inv = get_inventory(cache, supabase, ctx.author.name)
     
     # make sure the user has a seedling to plant
     seedling_index = -1
@@ -802,41 +697,10 @@ async def plant(ctx, tile=None):
 @command_timeout(0)
 async def harvest(ctx, tile=None):
     # retrieve farm data
-    if (farm_data := cache.retrieve(ctx.author.name, "farm")) is None:
-        response = supabase.table("user data").select("*").eq("username", ctx.author.name).execute()
-        if response.data and response.data[0]["farm"]:
-            farm_data = response.data[0]["farm"]
-        else:
-            farm_data = [
-                {
-                    "contents": "dirt",
-                    "icon": "🟫",
-                    "time": ""
-                } for i in range(9)
-            ]
-            supabase.table("user data").update({"farm": farm_data}).eq("username", ctx.author.name).execute()
-        cache.update(ctx.author.name, "farm", farm_data)
+    farm_data = get_farm_data(cache, supabase, ctx.author.name)
     
     # update farm (check if any seedlings have matured or any corn has expired)
-    time_now = datetime.datetime.now().timestamp()
-    for i in range(9):
-        if farm_data[i]["contents"] == "dirt":
-            continue
-        elapsed = time_now - farm_data[i]["time"]
-        if farm_data[i]["contents"] == "seedling" and elapsed >= 0 and elapsed < 86400:
-            # mature seedling turns into corn
-            farm_data[i] = {
-                "contents": "corn",
-                "icon": "🌽",
-                "time": farm_data[i]["time"]+86400
-            }
-        elif (farm_data[i]["contents"] not in ("dirt", "seedling") and elapsed >= 0) or (farm_data[i]["contents"] == "seedling" and elapsed >= 86400):
-            # expired corn (or seedling that was supposed to turn into expired corn) turns into dirt
-            farm_data[i] = {
-                "contents": "dirt",
-                "icon": "🟫",
-                "time": ""
-            }
+    farm_data = update_farm_data(cache, supabase, ctx.author.name, farm_data, update=False)
     
     # validate tile if provided
     if tile is not None:
@@ -880,14 +744,7 @@ async def harvest(ctx, tile=None):
     cache.update(ctx.author.name, "farm", farm_data)
 
     # get inventory
-    if (inv := cache.retrieve(ctx.author.name, "inventory")) is None:
-        response = supabase.table("user data").select("*").eq("username", ctx.author.name).execute()
-        if response.data:
-            inv = response.data[0]["inventory"]
-        else:
-            supabase.table("user data").insert({"username": ctx.author.name}).execute()
-            inv = []
-        cache.update(ctx.author.name, "inventory", inv)
+    inv = get_inventory(cache, supabase, ctx.author.name)
 
     # add corn to inventory
     if "corn" in [i["name"] for i in inv]:
@@ -925,14 +782,7 @@ async def water(ctx, tile=None):
         return False
     
     # get inventory
-    if (inv := cache.retrieve(ctx.author.name, "inventory")) is None:
-        response = supabase.table("user data").select("*").eq("username", ctx.author.name).execute()
-        if response.data:
-            inv = response.data[0]["inventory"]
-        else:
-            supabase.table("user data").insert({"username": ctx.author.name}).execute()
-            inv = []
-        cache.update(ctx.author.name, "inventory", inv)
+    inv = get_inventory(cache, supabase, ctx.author.name)
 
     # make sure the user has a bucket
     if "bucket" not in [i["name"] for i in inv]:
