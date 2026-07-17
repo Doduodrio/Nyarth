@@ -25,7 +25,7 @@ def now():
     return '[{}-{}-{} {}:{}:{}]'.format(*date)
 
 def log(ctx: commands.Context, command_name: str, message: str, error: bool = False):
-    print(f"{"[ERROR]" if error else ""} {now()} [{ctx.author.name}] {command_name}: {message}")
+    print(f"{"[ERROR] " if error else ""}{now()} [{ctx.author.name}] {command_name}: {message}")
 
 async def command_timeout_check(ctx: commands.Context, last_used: datetime.datetime, timeout: int):
     # last_used: datetime object
@@ -75,14 +75,68 @@ def find_member(ctx: commands.Context, username: str):
     return user
 
 def get_balance(cache, supabase, username):
-    if cache.retrieve(username, "balance"):
-        return cache.retrieve(username, "balance")
-    else:
+    if (balance := cache.retrieve(username, "balance")) is None:
         response = supabase.table("user data").select("*").eq("username", username).execute()
         if response.data:
             balance = response.data[0]["balance"]
         else:
-            supabase.table("user data").insert({"username": username, "balance": 0}).execute()
+            supabase.table("user data").insert({"username": username}).execute()
             balance = 0
         cache.update(username, "balance", balance)
-        return balance
+    return balance
+
+def get_inventory(cache, supabase, username):
+    if (inv := cache.retrieve(username, "inventory")) is None:
+        response = supabase.table("user data").select("*").eq("username", username).execute()
+        if response.data:
+            inv = response.data[0]["inventory"]
+        else:
+            supabase.table("user data").insert({"username": username}).execute()
+            inv = []
+        cache.update(username, "inventory", inv)
+    return inv
+
+def get_farm_data(cache, supabase, username):
+    if (farm_data := cache.retrieve(username, "farm")) is None:
+        response = supabase.table("user data").select("*").eq("username", username).execute()
+        if response.data and response.data[0]["farm"]:
+            farm_data = response.data[0]["farm"]
+        else:
+            farm_data = [
+                {
+                    "contents": "dirt",
+                    "icon": "🟫",
+                    "time": ""
+                } for i in range(9)
+            ]
+            supabase.table("user data").update({"farm": farm_data}).eq("username", username).execute()
+        cache.update(username, "farm", farm_data)
+    return farm_data
+
+def update_farm_data(cache, supabase, username, farm_data, update=True):
+    update_needed = False
+    time_now = datetime.datetime.now().timestamp()
+    for i in range(9):
+        if farm_data[i]["contents"] == "dirt":
+            continue
+        elapsed = time_now - farm_data[i]["time"]
+        if farm_data[i]["contents"] == "seedling" and elapsed >= 0 and elapsed < 86400:
+            # mature seedling turns into corn
+            farm_data[i] = {
+                "contents": "corn",
+                "icon": "🌽",
+                "time": farm_data[i]["time"]+86400
+            }
+            update_needed = True
+        elif (farm_data[i]["contents"] not in ("dirt", "seedling") and elapsed >= 0) or (farm_data[i]["contents"] == "seedling" and elapsed >= 86400):
+            # expired corn (or seedling that was supposed to turn into expired corn) turns into dirt
+            farm_data[i] = {
+                "contents": "dirt",
+                "icon": "🟫",
+                "time": ""
+            }
+            update_needed = True
+    if update and update_needed:
+        supabase.table("user data").update({"farm": farm_data}).eq("username", username).execute()
+        cache.update(username, "farm", farm_data)
+    return farm_data
