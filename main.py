@@ -823,12 +823,27 @@ async def water(ctx, tile=None):
         return False
     
     # speed up harvest by 3-7 minutes
-    farm_data[tile-1]["time"] -= 60*random.randint(3,7)
+    speed_up_time = 60*random.randint(3, 7)
+    farm_data[tile-1]["time"] -= speed_up_time
     await ctx.send(f"<@{ctx.author.id}> watered the 🌱 in Tile {tile}! It will grow a bit faster!")
-    log(ctx, "water", f"watered tile {tile}")
+    log(ctx, "water", f"watered tile {tile}, sped up by {int(speed_up_time/60)} minutes")
 
     # update farm
     supabase.table("user data").update({"farm": farm_data}).eq("username", ctx.author.name).execute()
     cache.update(ctx.author.name, "farm", farm_data)
+
+    # possibly break bucket (10%)
+    if random.randint(1, 10) == 1:
+        await ctx.send(f"<@{ctx.author.id}> Your bucket broke! Buy a new one to keep watering your 🌱!")
+        log(ctx, "water", "bucket broke")
+
+        # remove bucket from inventory
+        for i in range(len(inv)):
+            if inv[i]["name"] == "bucket":
+                inv.pop(i)
+                break
+        
+        supabase.table("user data").update({"inventory": inv}).eq("username", ctx.author.name).execute()
+        cache.update(ctx.author.name, "inventory", inv)
 
 bot.run(TOKEN)
