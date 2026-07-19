@@ -822,8 +822,8 @@ async def water(ctx, tile=None):
         log(ctx, "water", f"can't water {farm_data[tile-1]["contents"]}")
         return False
     
-    # speed up harvest by 5 minutes
-    farm_data[tile-1]["time"] -= 300
+    # speed up harvest by 3-7 minutes
+    farm_data[tile-1]["time"] -= 60*random.randint(3,7)
     await ctx.send(f"<@{ctx.author.id}> watered the 🌱 in Tile {tile}! It will grow a bit faster!")
     log(ctx, "water", f"watered tile {tile}")
 
