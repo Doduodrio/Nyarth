@@ -34,6 +34,12 @@ def command_timeout(timeout):
     def decorator(func):
         @wraps(func)
         async def wrapper(ctx, *args, **kwargs):
+            # ongoing confirmation check
+            if cache.retrieve(ctx.author.name, "awaiting confirmation"):
+                await ctx.send(f"❌ You still haven't responded to the previous command!")
+                log(ctx, func.__name__, f"hasn't responded to previous command", error=True)
+                return
+
             # command timeout check
             if time_string := await command_timeout_check(ctx, cache.retrieve(ctx.author.name, f"{func.__name__}_timeout"), timeout):
                 await ctx.send(f"❌ You can use this command again in `{time_string}`.")
@@ -445,9 +451,11 @@ async def buy(ctx, quantity=None, *args):
         return False
     
     # confirmation
+    cache.update(ctx.author.name, "awaiting confirmation", True)
     await ctx.send(f"<@{ctx.author.id}> Are you sure you want to buy {quantity}x {item["icon"]} {item["name"].title()} for 🪙{item["price"]*quantity}? (y/n)")
-    message = await bot.wait_for("message", check=lambda m: (m.content.lower() == "y" or m.content.lower() == "n") and m.channel == ctx.channel)
-    if message.content.lower() != "y":
+    message = await bot.wait_for("message", check=lambda m: m.author == ctx.author and (m.content.lower() in ["y", "n"]) and m.channel == ctx.channel)
+    cache.update(ctx.author.name, "awaiting confirmation", False)
+    if message.content.lower() == "n":
         await ctx.send(f"<@{ctx.author.id}> Purchase cancelled.")
         log(ctx, "buy", f"cancelled purchase of {quantity} {item["name"]} for {item["price"]*quantity} coins")
         return False
@@ -525,7 +533,7 @@ async def sell(ctx, quantity=None, *args):
     # make sure there is enough of the item in the inventory
     if inv[item_index]["count"] < quantity:
         await ctx.send("❌ You don't have enough to sell!")
-        log(ctx, "sell", f"doesn't have enough to sell (has {item["count"]} {item_name}, wants to sell {quantity})", error=True)
+        log(ctx, "sell", f"doesn't have enough to sell (has {inv[item_index]["count"]} {item_name}, wants to sell {quantity})", error=True)
         return False
     
     # get item data
@@ -537,9 +545,11 @@ async def sell(ctx, quantity=None, *args):
         return False
     
     # confirmation
+    cache.update(ctx.author.name, "awaiting confirmation", True)
     await ctx.send(f"<@{ctx.author.id}> Are you sure you want to sell {quantity}x {item["icon"]} {item["name"].title()} for 🪙{item["price"]*quantity}? (y/n)")
-    message = await bot.wait_for("message", check=lambda m: (m.content.lower() == "y" or m.content.lower() == "n") and m.channel == ctx.channel)
-    if message.content.lower() != "y":
+    message = await bot.wait_for("message", check=lambda m: m.author == ctx.author and (m.content.lower() in ["y", "n"]) and m.channel == ctx.channel)
+    cache.update(ctx.author.name, "awaiting confirmation", False)
+    if message.content.lower() == "n":
         await ctx.send(f"<@{ctx.author.id}> Sale cancelled.")
         log(ctx, "sell", f"cancelled sale of {quantity} {item["name"]} for {item["price"]*quantity} coins")
         return False
