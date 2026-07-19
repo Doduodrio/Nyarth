@@ -787,9 +787,14 @@ async def water(ctx, tile=None):
         if tile <= 0 or tile > 9:
             raise Exception
     except:
-        await ctx.send("❌ Invalid tile. Please select a tile from 1 - 9.")
-        log(ctx, "water", f"invalid tile ({tile})", error=True)
-        return False
+        try:
+            tile = tile.lower()
+            if tile != "all":
+                raise Exception
+        except:
+            await ctx.send("❌ Invalid tile. Please select a tile from 1 - 9 or \"all\".")
+            log(ctx, "water", f"invalid tile ({tile})", error=True)
+            return False
     
     # get inventory
     inv = get_inventory(cache, supabase, ctx.author.name)
@@ -801,39 +806,45 @@ async def water(ctx, tile=None):
         return False
     
     # retrieve farm data
-    if (farm_data := cache.retrieve(ctx.author.name, "farm")) is None:
-        response = supabase.table("user data").select("*").eq("username", ctx.author.name).execute()
-        if response.data and response.data[0]["farm"]:
-            farm_data = response.data[0]["farm"]
-        else:
-            farm_data = [
-                {
-                    "contents": "dirt",
-                    "icon": "🟫",
-                    "time": ""
-                } for i in range(9)
-            ]
-            supabase.table("user data").update({"farm": farm_data}).eq("username", ctx.author.name).execute()
-        cache.update(ctx.author.name, "farm", farm_data)
+    farm_data = get_farm_data(cache, supabase, ctx.author.name)
 
-    # make sure selected tile is a seedling
-    if farm_data[tile-1]["contents"] != "seedling":
-        await ctx.send(f"❌ You can't water {farm_data[tile-1]["icon"]}!")
-        log(ctx, "water", f"can't water {farm_data[tile-1]["contents"]}")
-        return False
+    # update farm data
+    farm_data = update_farm_data(cache, supabase, ctx.author.name, farm_data, update=False)
+
+    # generate list of tiles to water
+    if tile == "all":
+        water_tiles = [i for i in range(9) if farm_data[i]["contents"] == "seedling"]
+        if len(water_tiles) == 0:
+            await ctx.send("❌ There is nothing to water.")
+            log(ctx, "water", "nothing to water")
+            return False
+    else:
+        if farm_data[tile-1]["contents"] == "seedling":
+            water_tiles = [tile-1]
+        else:
+            await ctx.send(f"❌ You can't water {farm_data[tile-1]["icon"]}!")
+            log(ctx, "water", f"can't water {farm_data[tile-1]["contents"]}")
+            return False
     
     # speed up harvest by 3-7 minutes
-    speed_up_time = 60*random.randint(3, 7)
-    farm_data[tile-1]["time"] -= speed_up_time
-    await ctx.send(f"<@{ctx.author.id}> watered the 🌱 in Tile {tile}! It will grow a bit faster!")
-    log(ctx, "water", f"watered tile {tile}, sped up by {int(speed_up_time/60)} minutes")
+    speed_up_time = []
+    for x in water_tiles:
+        speed_up_time.append(60*random.randint(3, 7))
+        farm_data[x]["time"] -= speed_up_time[-1]
+    
+    if len(water_tiles) == 1:
+        await ctx.send(f"<@{ctx.author.id}> watered the 🌱 in Tile {tile}! It will grow a bit faster!")
+        log(ctx, "water", f"watered tile {tile}, sped up by {int(speed_up_time[0]/60)} minutes")
+    else:
+        await ctx.send(f"<@{ctx.author.id}> watered the 🌱 in Tiles {", ".join([str(i+1) for i in water_tiles])}! They will grow a bit faster!")
+        log(ctx, "water", f"watered tiles {", ".join([str(i+1) for i in water_tiles])}, sped up by {", ".join([str(int(i/60)) for i in speed_up_time])} minutes")
 
     # update farm
     supabase.table("user data").update({"farm": farm_data}).eq("username", ctx.author.name).execute()
     cache.update(ctx.author.name, "farm", farm_data)
 
-    # possibly break bucket (10%)
-    if random.randint(1, 10) == 1:
+    # break bucket (10% if one tile, 100% if all tiles)
+    if len(water_tiles) > 1 or random.randint(1, 10) == 1:
         await ctx.send(f"<@{ctx.author.id}> Your bucket broke! Buy a new one to keep watering your 🌱!")
         log(ctx, "water", "bucket broke")
 
