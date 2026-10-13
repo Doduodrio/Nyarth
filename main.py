@@ -40,6 +40,12 @@ def command_timeout(timeout):
                 log(ctx, func.__name__, f"hasn't responded to previous command", error=True)
                 return
 
+            # poop check
+            if poop_string := await command_timeout_check(ctx, cache.retrieve(ctx.author.name, "poop_timeout"), 300):
+                await ctx.send(f"❌ You are pooping. You can use this command again in `{poop_string}`.")
+                log(ctx, func.__name__, f"poop timeout ({poop_string} left)", error=True)
+                return
+            
             # command timeout check
             if time_string := await command_timeout_check(ctx, cache.retrieve(ctx.author.name, f"{func.__name__}_timeout"), timeout):
                 await ctx.send(f"❌ You can use this command again in `{time_string}`.")
@@ -240,7 +246,7 @@ async def give(ctx, username=None, amount=None):
 
 @bot.command(aliases=["lb"])
 @command_timeout(0)
-async def leaderboard(ctx: commands.Context, page=None):
+async def leaderboard(ctx: commands.Context, page=None, type=None):
     # validate page number
     try:
         if page is None:
@@ -248,18 +254,34 @@ async def leaderboard(ctx: commands.Context, page=None):
         else:
             page = int(page)
     except:
-        await ctx.send("❌ Invalid page number.")
-        log(ctx, "leaderboard", f"invalid page number ({page})", error=True)
-        return False
+        if type is None:
+            type = page
+            page = 1
+        else:
+            await ctx.send("❌ Invalid page number.")
+            log(ctx, "leaderboard", f"invalid page number ({page})", error=True)
+            return False
 
     # retrieve data
     response = supabase.table("user data").select("*").execute()
     # update cache
     for row in response.data:
-        cache.update(row["username"], "balance", row["balance"])
+        for field in ["balance", "inventory", "farm", "poop"]:
+            cache.update(row["username"], field, row[field])
+    
+    if (type is None) or (type.lower() in ["b", "bal", "balance"]):
+        type = "balance"
+        icon = "🪙"
+    elif type.lower() in ["p", "poop"]:
+        type = "poop"
+        icon = "💩"
+    else:
+        ctx.send(f"❌ Invalid leaderboard type.")
+        log(ctx, "leaderboard", f"invalid leaderboard type ({type})", error=True)
+        return False
 
     # convert data into a list of pairs
-    lb = [(row["username"], row["balance"]) for row in response.data]
+    lb = [(row["username"], row[type]) for row in response.data]
     lb.sort(key=lambda x: x[1], reverse=True)
 
     # remove members that aren't in the guild
@@ -291,14 +313,14 @@ async def leaderboard(ctx: commands.Context, page=None):
     lb_string = "```"
     for i in range(10):
         if (page-1)*10+i < len(lb):
-            lb_string += f"\n{(page-1)*10+i+1:>2}. 🪙{lb[(page-1)*10+i][1]:<{padding}} {lb[(page-1)*10+i][0]}"
+            lb_string += f"\n{(page-1)*10+i+1:>2}. {icon}{lb[(page-1)*10+i][1]:<{padding}} {lb[(page-1)*10+i][0]}"
     lb_string += "```"
     
     embed = discord.Embed(color=discord.Color.gold())
-    embed.add_field(name=f"{ctx.guild.name} Leaderboard", value=lb_string)
+    embed.add_field(name=f"{ctx.guild.name}{" Poop" if type!="balance" else ""} Leaderboard", value=lb_string)
     embed.set_footer(text=f"Page {page}/{max_pages}")
     await ctx.send(embed=embed)
-    log(ctx, "leaderboard", f"displayed leaderboard for {ctx.guild.name}")
+    log(ctx, "leaderboard", f"displayed {type} leaderboard for {ctx.guild.name}")
 
 @bot.command()
 @command_timeout(0)
@@ -679,9 +701,9 @@ async def plant(ctx, tile=None):
     # send message to user before making more api calls
     ready_time = datetime.datetime.now().timestamp()+3600
     if len(plantable_tiles) == 1:
-        await ctx.send(f"<@{ctx.author.id}> planted a 🌱 in Tile {plantable_tiles[0]}! It will be fully grown <t:{int(ready_time)}:R>")
+        await ctx.send(f"<@{ctx.author.id}> planted a 🌱 in Tile {plantable_tiles[0]}! It will be fully grown <t:{int(ready_time)}:R>.")
     else:
-        await ctx.send(f"<@{ctx.author.id}> planted {len(plantable_tiles)}x 🌱 in Tiles {", ".join([str(i) for i in plantable_tiles])}! They will be fully grown <t:{int(ready_time)}:R>")
+        await ctx.send(f"<@{ctx.author.id}> planted {len(plantable_tiles)}x 🌱 in Tiles {", ".join([str(i) for i in plantable_tiles])}! They will be fully grown <t:{int(ready_time)}:R>.")
     
     # remove seedlings from the inventory
     if inv[seedling_index]["name"] == "seedling":
@@ -856,5 +878,16 @@ async def water(ctx, tile=None):
         
         supabase.table("user data").update({"inventory": inv}).eq("username", ctx.author.name).execute()
         cache.update(ctx.author.name, "inventory", inv)
+
+@bot.command()
+@command_timeout(300)
+async def poop(ctx):
+    await ctx.send(f"<@{ctx.author.id}> pooped 💩")
+    log(ctx, "poop", "pooped")
+
+    # update database
+    poop = get_poop(cache, supabase, ctx.author.name)
+    supabase.table("user data").update({"poop": poop+1}).eq("username", ctx.author.name).execute()
+    cache.update(ctx.author.name, "poop", poop+1)
 
 bot.run(TOKEN)

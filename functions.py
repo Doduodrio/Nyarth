@@ -140,3 +140,14 @@ def update_farm_data(cache, supabase, username, farm_data, update=True):
         supabase.table("user data").update({"farm": farm_data}).eq("username", username).execute()
         cache.update(username, "farm", farm_data)
     return farm_data
+
+def get_poop(cache, supabase, username):
+    if (poop := cache.retrieve(username, "poop")) is None:
+        response = supabase.table("user data").select("*").eq("username", username).execute()
+        if response.data:
+            poop = response.data[0]["poop"]
+        else:
+            supabase.table("user data").insert({"username": username}).execute()
+            poop = 0
+        cache.update(username, "poop", poop)
+    return poop
