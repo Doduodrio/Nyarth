@@ -848,10 +848,10 @@ async def water(ctx, tile=None):
             log(ctx, "water", f"can't water {farm_data[tile-1]["contents"]}")
             return False
     
-    # speed up harvest by 3-7 minutes
+    # speed up harvest by 10 minutes
     speed_up_time = []
     for x in water_tiles:
-        speed_up_time.append(60*random.randint(3, 7))
+        speed_up_time.append(600)
         farm_data[x]["time"] -= speed_up_time[-1]
     
     if len(water_tiles) == 1:
@@ -865,8 +865,8 @@ async def water(ctx, tile=None):
     supabase.table("user data").update({"farm": farm_data}).eq("username", ctx.author.name).execute()
     cache.update(ctx.author.name, "farm", farm_data)
 
-    # break bucket (10% if one tile, 100% if all tiles)
-    if len(water_tiles) > 1 or random.randint(1, 10) == 1:
+    # break bucket (10% if one tile, 60% if all tiles)
+    if (len(water_tiles) > 1 and random.randint(1, 10) <= 6) or random.randint(1, 10) == 1:
         await ctx.send(f"<@{ctx.author.id}> Your bucket broke! Buy a new one to keep watering your 🌱!")
         log(ctx, "water", "bucket broke")
 
